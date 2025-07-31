@@ -5,13 +5,13 @@ import { getStorage, FirebaseStorage } from "firebase/storage";
 
 // Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyAtLaqgd9TGMnFlxXPpkQih_yAtb5xcul8",
-  authDomain: "thinkcompl-ai.firebaseapp.com",
-  projectId: "thinkcompl-ai",
+  apiKey: "AIzaSyAEsnbrP7qIoc8ym0KvqI0Z39aJyxP36FE",
+  authDomain: "thinkcompl-ai-project.firebaseapp.com",
+  projectId: "thinkcompl-ai-project",
   storageBucket: "thinkcompl-ai-project.firebasestorage.app",
-  messagingSenderId: "765745911351",
-  appId: "1:765745911351:web:20c0f829f4287977ff51b2",
-  measurementId: "G-MK14RH5NHN"
+  messagingSenderId: "116350304865",
+  appId: "1:116350304865:web:f833918de1511ef4cd2020",
+  measurementId: "G-549RCCFSQB"
 };
 
 // Initialize Firebase only on client side

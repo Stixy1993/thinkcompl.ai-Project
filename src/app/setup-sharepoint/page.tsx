@@ -94,14 +94,8 @@ export default function SharePointSetupPage() {
       if (data.success && data.config) {
         setCurrentConfig(data.config);
         
-        // Pre-fill form with existing configuration
-        if (data.config.tenantId) setFormData(prev => ({ ...prev, tenantId: data.config.tenantId }));
-        if (data.config.clientId) setFormData(prev => ({ ...prev, clientId: data.config.clientId }));
-        if (data.config.siteId) setFormData(prev => ({ ...prev, siteId: data.config.siteId }));
-        if (data.config.driveId) setFormData(prev => ({ ...prev, driveId: data.config.driveId }));
-        if (data.config.siteUrl) setFormData(prev => ({ ...prev, siteUrl: data.config.siteUrl }));
-        
-        // Mark as saved if configuration exists
+        // Don't pre-fill form with existing configuration to avoid using old invalid credentials
+        // Only set the config saved state if configuration exists
         if (data.config.configSaved) {
           setConfigSaved(true);
         }

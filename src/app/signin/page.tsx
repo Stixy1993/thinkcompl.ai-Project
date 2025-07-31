@@ -4,7 +4,7 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import SignInWithGoogle from "../../components/SignInWithGoogle";
 import { useState } from "react";
-import { createUserWithEmailAndPassword } from "firebase/auth";
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../../lib/firebase/firebase";
 
 export default function SignIn() {
@@ -23,6 +23,26 @@ export default function SignIn() {
   const [registerError, setRegisterError] = useState("");
   const [registerSuccess, setRegisterSuccess] = useState("");
   const [registerLoading, setRegisterLoading] = useState(false);
+  const [signInEmail, setSignInEmail] = useState("");
+  const [signInPassword, setSignInPassword] = useState("");
+  const [signInError, setSignInError] = useState("");
+  const [signInLoading, setSignInLoading] = useState(false);
+
+  const handleSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSignInError("");
+    setSignInLoading(true);
+    try {
+      if (!auth) {
+        throw new Error("Firebase auth not initialized");
+      }
+      await signInWithEmailAndPassword(auth, signInEmail, signInPassword);
+      // Redirect will be handled by AuthContext
+    } catch (err: any) {
+      setSignInError(err.message);
+    }
+    setSignInLoading(false);
+  };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -99,15 +119,18 @@ export default function SignIn() {
           <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8">
             <h2 className="text-3xl font-bold text-center mb-2 text-gray-900">Sign In</h2>
             <p className="text-center text-gray-700 mb-6">Enter your details to access your account</p>
-            <form className="space-y-4">
+            <form onSubmit={handleSignIn} className="space-y-4">
               <div>
                 <label htmlFor="email" className="block text-sm font-medium text-gray-900">Email</label>
                 <input
                   id="email"
                   type="email"
+                  value={signInEmail}
+                  onChange={e => setSignInEmail(e.target.value)}
                   placeholder="example@company.com"
                   className="mt-1 w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 text-gray-900"
                   autoComplete="email"
+                  required
                 />
               </div>
               <div>
@@ -115,11 +138,15 @@ export default function SignIn() {
                 <input
                   id="password"
                   type="password"
+                  value={signInPassword}
+                  onChange={e => setSignInPassword(e.target.value)}
                   placeholder="••••••••"
                   className="mt-1 w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 text-gray-900"
                   autoComplete="current-password"
+                  required
                 />
               </div>
+              {signInError && <div className="text-red-500 text-sm">{signInError}</div>}
               <div className="flex items-center justify-between">
                 <label className="flex items-center text-sm text-gray-900">
                   <input type="checkbox" className="mr-2 rounded" /> Remember me
@@ -129,8 +156,9 @@ export default function SignIn() {
               <button
                 type="submit"
                 className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 rounded-md transition-colors"
+                disabled={signInLoading}
               >
-                Sign In
+                {signInLoading ? "Signing In..." : "Sign In"}
               </button>
             </form>
             <div className="flex items-center my-4">

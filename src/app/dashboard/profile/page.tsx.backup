@@ -1,0 +1,1248 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { motion } from "framer-motion";
+import { HiUserGroup, HiPencilAlt, HiCheck, HiX, HiPlus, HiTrash } from "react-icons/hi";
+import { useAuth } from "../../../lib/hooks/useAuth";
+import { saveUserProfile, getUserProfile, UserProfile, License } from "../../../lib/firebase/firebaseUtils";
+import Image from "next/image";
+
+export default function ProfilePage() {
+  const { user } = useAuth();
+  const [isEditing, setIsEditing] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const [formData, setFormData] = useState({
+    fullName: "",
+    email: "",
+    phone: "",
+    employeeId: "",
+    address: "",
+    company: "",
+    department: "",
+    position: "",
+    startDate: "",
+    startDateNotSpecified: false,
+    emergencyContact: "",
+    emergencyPhone: "",
+  });
+  const [licenses, setLicenses] = useState<License[]>([]);
+  const [certifications, setCertifications] = useState<License[]>([]);
+  const [dateErrors, setDateErrors] = useState<{[key: string]: string}>({});
+
+  // Load profile data on component mount
+  useEffect(() => {
+    const loadProfile = async () => {
+      if (!user) {
+        setIsLoading(false);
+        return;
+      }
+
+      // Set a timeout to prevent infinite loading
+      const timeoutId = setTimeout(() => {
+        console.warn('Firebase loading timeout - using fallback data');
+        setFormData({
+          fullName: user.displayName || "",
+          email: user.email || "",
+          phone: "",
+          employeeId: "6969",
+          address: "",
+          company: "thinkcompl.ai",
+          department: "",
+          position: "",
+          startDate: "",
+          startDateNotSpecified: false,
+          emergencyContact: "",
+          emergencyPhone: "",
+        });
+        setLicenses([]);
+        setIsLoading(false);
+      }, 10000); // 10 second timeout
+
+      try {
+        const profile = await getUserProfile();
+        clearTimeout(timeoutId); // Clear timeout if successful
+        
+        if (profile) {
+          setFormData({
+            fullName: profile.fullName || user.displayName || "",
+            email: profile.email || user.email || "",
+            phone: profile.phone || "",
+            employeeId: profile.employeeId || "6969",
+            address: profile.address || "",
+            company: profile.company || "thinkcompl.ai",
+            department: profile.department || "",
+            position: profile.position || "",
+            startDate: profile.startDate || "",
+            startDateNotSpecified: profile.startDateNotSpecified || false,
+            emergencyContact: profile.emergencyContact || "",
+            emergencyPhone: profile.emergencyPhone || "",
+          });
+          setLicenses(profile.licenses || []);
+          setCertifications(profile.certifications || []);
+        } else {
+          // If no profile exists, set default data from user auth
+          setFormData({
+            fullName: user.displayName || "",
+            email: user.email || "",
+            phone: "",
+            employeeId: "6969",
+            address: "",
+            company: "thinkcompl.ai",
+            department: "",
+            position: "",
+            startDate: "",
+            startDateNotSpecified: false,
+            emergencyContact: "",
+            emergencyPhone: "",
+          });
+          setLicenses([]);
+          setCertifications([]);
+        }
+      } catch (error) {
+        clearTimeout(timeoutId); // Clear timeout on error
+        console.error('Error loading profile:', error);
+        setSaveMessage({ type: 'error', text: 'Failed to load profile data' });
+        // Set default data even on error
+        setFormData({
+          fullName: user.displayName || "",
+          email: user.email || "",
+          phone: "",
+          employeeId: "6969",
+          address: "",
+          company: "thinkcompl.ai",
+          department: "",
+          position: "",
+          startDate: "",
+          startDateNotSpecified: false,
+          emergencyContact: "",
+          emergencyPhone: "",
+        });
+        setLicenses([]);
+        setCertifications([]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadProfile();
+  }, [user]);
+
+  // Clear save message after 5 seconds
+  useEffect(() => {
+    if (saveMessage) {
+      const timer = setTimeout(() => {
+        setSaveMessage(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [saveMessage]);
+
+  // Date validation function
+  const validateDate = (dateString: string): boolean => {
+    const dateRegex = /^(0[1-9]|[12][0-9]|3[01])\/(0[1-9]|1[0-2])\/\d{4}$/;
+    if (!dateRegex.test(dateString)) return false;
+    
+    const [day, month, year] = dateString.split('/').map(Number);
+    const date = new Date(year, month - 1, day);
+    
+    return date.getDate() === day && 
+           date.getMonth() === month - 1 && 
+           date.getFullYear() === year;
+  };
+
+  // Format date input as user types
+  const formatDateInput = (value: string): string => {
+    // Remove all non-digits
+    const digits = value.replace(/\D/g, '');
+    
+    // Format as DD/MM/YYYY
+    if (digits.length <= 2) return digits;
+    if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+    if (digits.length <= 8) return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4, 8)}`;
+    
+    return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4, 8)}`;
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    
+    // Auto-capitalize specific fields
+    let processedValue = value;
+    if (name === 'fullName' || name === 'department' || name === 'position') {
+      processedValue = capitalizeText(value);
+    }
+    
+    setFormData(prev => ({
+      ...prev,
+      [name]: processedValue
+    }));
+
+    // Clear date error when user starts typing
+    if (name === 'startDate' && dateErrors.startDate) {
+      setDateErrors(prev => ({ ...prev, startDate: '' }));
+    }
+  };
+
+  const capitalizeText = (text: string): string => {
+    return text.replace(/\b\w/g, (char) => char.toUpperCase());
+  };
+
+  const handleLicenseChange = (id: string, field: keyof License, value: string) => {
+    // Auto-capitalize specific fields
+    let processedValue = value;
+    if (field === 'name' || field === 'class' || field === 'issuingAuthority') {
+      processedValue = capitalizeText(value);
+    }
+    
+    setLicenses(prev => prev.map(license => 
+      license.id === id ? { ...license, [field]: processedValue } : license
+    ));
+
+    // Clear date errors when user starts typing
+    if ((field === 'issuedDate' || field === 'expiryDate') && dateErrors[`${id}-${field}`]) {
+      setDateErrors(prev => ({ ...prev, [`${id}-${field}`]: '' }));
+    }
+  };
+
+  const handleCertificationChange = (id: string, field: keyof License, value: string) => {
+    // Auto-capitalize specific fields
+    let processedValue = value;
+    if (field === 'name' || field === 'class' || field === 'issuingAuthority') {
+      processedValue = capitalizeText(value);
+    }
+    
+    setCertifications(prev => prev.map(certification => 
+      certification.id === id ? { ...certification, [field]: processedValue } : certification
+    ));
+
+    // Clear date errors when user starts typing
+    if ((field === 'issuedDate' || field === 'expiryDate') && dateErrors[`${id}-${field}`]) {
+      setDateErrors(prev => ({ ...prev, [`${id}-${field}`]: '' }));
+    }
+  };
+
+  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>, field: string, licenseId?: string, isCertification?: boolean) => {
+    const value = e.target.value;
+    const formattedValue = formatDateInput(value);
+    
+    if (licenseId) {
+      if (isCertification) {
+        handleCertificationChange(licenseId, field as keyof License, formattedValue);
+      } else {
+        handleLicenseChange(licenseId, field as keyof License, formattedValue);
+      }
+    } else {
+      setFormData(prev => ({ ...prev, [field]: formattedValue }));
+    }
+  };
+
+  const addLicense = () => {
+    const newLicense: License = {
+      id: Date.now().toString(),
+      name: '',
+      number: '',
+      class: '',
+      issuedDate: '',
+      expiryDate: '',
+      issuingAuthority: '',
+      status: 'valid',
+      notes: '',
+      issuedDateNotSpecified: false,
+      expiryDateNotSpecified: false
+    };
+    setLicenses(prev => [...prev, newLicense]);
+  };
+
+  const addCertification = () => {
+    const newCertification: License = {
+      id: Date.now().toString(),
+      name: '',
+      number: '',
+      class: '',
+      issuedDate: '',
+      expiryDate: '',
+      issuingAuthority: '',
+      status: 'valid',
+      notes: '',
+      issuedDateNotSpecified: false,
+      expiryDateNotSpecified: false
+    };
+    setCertifications(prev => [...prev, newCertification]);
+  };
+
+  const removeLicense = (id: string) => {
+    setLicenses(prev => prev.filter(license => license.id !== id));
+  };
+
+  const removeCertification = (id: string) => {
+    setCertifications(prev => prev.filter(certification => certification.id !== id));
+  };
+
+  const validateAllDates = (): boolean => {
+    const errors: {[key: string]: string} = {};
+    
+    // Validate start date (required unless not specified)
+    if (!formData.startDateNotSpecified && (!formData.startDate || formData.startDate.trim() === '')) {
+      errors.startDate = 'Please enter a start date or check "Not Specified"';
+    } else if (formData.startDate && formData.startDate.trim() !== '' && !validateDate(formData.startDate)) {
+      errors.startDate = 'Please enter a valid date in DD/MM/YYYY format';
+    }
+    
+    // Validate license dates (required unless not specified)
+    licenses.forEach(license => {
+      if (!license.issuedDateNotSpecified && (!license.issuedDate || license.issuedDate.trim() === '')) {
+        errors[`${license.id}-issuedDate`] = 'Please enter an issue date or check "Not Specified"';
+      } else if (license.issuedDate && license.issuedDate.trim() !== '' && !validateDate(license.issuedDate)) {
+        errors[`${license.id}-issuedDate`] = 'Please enter a valid date in DD/MM/YYYY format';
+      }
+      
+      if (!license.expiryDateNotSpecified && (!license.expiryDate || license.expiryDate.trim() === '')) {
+        errors[`${license.id}-expiryDate`] = 'Please enter an expiry date or check "Not Specified"';
+      } else if (license.expiryDate && license.expiryDate.trim() !== '' && !validateDate(license.expiryDate)) {
+        errors[`${license.id}-expiryDate`] = 'Please enter a valid date in DD/MM/YYYY format';
+      }
+    });
+
+    // Validate certification dates (required unless not specified)
+    certifications.forEach(certification => {
+      if (!certification.issuedDateNotSpecified && (!certification.issuedDate || certification.issuedDate.trim() === '')) {
+        errors[`${certification.id}-issuedDate`] = 'Please enter an issue date or check "Not Specified"';
+      } else if (certification.issuedDate && certification.issuedDate.trim() !== '' && !validateDate(certification.issuedDate)) {
+        errors[`${certification.id}-issuedDate`] = 'Please enter a valid date in DD/MM/YYYY format';
+      }
+      
+      if (!certification.expiryDateNotSpecified && (!certification.expiryDate || certification.expiryDate.trim() === '')) {
+        errors[`${certification.id}-expiryDate`] = 'Please enter an expiry date or check "Not Specified"';
+      } else if (certification.expiryDate && certification.expiryDate.trim() !== '' && !validateDate(certification.expiryDate)) {
+        errors[`${certification.id}-expiryDate`] = 'Please enter a valid date in DD/MM/YYYY format';
+      }
+    });
+    
+    setDateErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleNotSpecifiedChange = (field: string, licenseId?: string, isCertification?: boolean) => {
+    if (licenseId) {
+      if (isCertification) {
+        setCertifications(prev => prev.map(certification => 
+          certification.id === licenseId 
+            ? { 
+                ...certification, 
+                [field]: !certification[field as keyof License],
+                [field === 'issuedDateNotSpecified' ? 'issuedDate' : 'expiryDate']: ''
+              }
+            : certification
+        ));
+      } else {
+        setLicenses(prev => prev.map(license => 
+          license.id === licenseId 
+            ? { 
+                ...license, 
+                [field]: !license[field as keyof License],
+                [field === 'issuedDateNotSpecified' ? 'issuedDate' : 'expiryDate']: ''
+              }
+            : license
+        ));
+      }
+    } else {
+      setFormData(prev => ({ 
+        ...prev, 
+        [field]: !prev[field as keyof typeof prev],
+        startDate: ''
+      }));
+    }
+  };
+
+  const handleSave = async () => {
+    if (!validateAllDates()) {
+      setSaveMessage({ type: 'error', text: 'Please fix date validation errors before saving' });
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveMessage(null);
+
+    try {
+      await saveUserProfile({
+        fullName: formData.fullName,
+        email: formData.email,
+        phone: formData.phone,
+        employeeId: formData.employeeId,
+        address: formData.address,
+        company: formData.company,
+        department: formData.department,
+        position: formData.position,
+        startDate: formData.startDate,
+        startDateNotSpecified: formData.startDateNotSpecified,
+        emergencyContact: formData.emergencyContact,
+        emergencyPhone: formData.emergencyPhone,
+        licenses: licenses,
+        certifications: certifications,
+      });
+      
+      setSaveMessage({ type: 'success', text: 'Profile saved successfully!' });
+      setIsEditing(false);
+
+      // Clear success message after 3 seconds
+      setTimeout(() => {
+        setSaveMessage(null);
+      }, 3000);
+
+    } catch (error) {
+      console.error('Error saving profile:', error);
+      setSaveMessage({ type: 'error', text: 'Failed to save profile. Please try again.' });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleCancel = () => {
+    // Reset form data to original values
+    setFormData({
+      fullName: user?.displayName || 'Christopher Hart',
+      email: user?.email || 'info@thinkcompl.ai',
+      phone: '0400 140 967',
+      employeeId: '6969',
+      company: 'thinkcompl.ai',
+      department: 'Project Management',
+      position: 'Project Manager',
+      startDate: '01/01/2024',
+      startDateNotSpecified: false,
+      address: '123 Business Street, Sydney NSW 2000',
+      emergencyContact: 'Jane Hart',
+      emergencyPhone: '0400 140 968'
+    });
+    setLicenses([
+      {
+        id: '1',
+        name: 'Construction Management',
+        number: 'CM-2024-001',
+        class: 'Project Management',
+        issuedDate: '15/01/2024',
+        expiryDate: '30/12/2024',
+        issuingAuthority: 'Construction Authority',
+        status: 'valid',
+        notes: 'Primary license for project management activities',
+        issuedDateNotSpecified: false,
+        expiryDateNotSpecified: false
+      }
+    ]);
+    setCertifications([]);
+    setIsEditing(false);
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'valid': return 'bg-green-100 text-green-800';
+      case 'expired': return 'bg-red-100 text-red-800';
+      case 'expiring-soon': return 'bg-yellow-100 text-yellow-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  // Function to calculate expiration status
+  const getExpirationStatus = (expiryDate: string): { status: 'valid' | 'expiring-soon' | 'expired', icon: JSX.Element, label: string } => {
+    if (!expiryDate || expiryDate.trim() === '') {
+      return { 
+        status: 'valid', 
+        icon: <HiCheck className="w-3 h-3 text-white" />,
+        label: 'Valid'
+      };
+    }
+
+    const [day, month, year] = expiryDate.split('/').map(Number);
+    const expiry = new Date(year, month - 1, day);
+    const today = new Date();
+    const oneMonthFromNow = new Date();
+    oneMonthFromNow.setMonth(oneMonthFromNow.getMonth() + 1);
+
+    if (expiry < today) {
+      return { 
+        status: 'expired', 
+        icon: <HiX className="w-3 h-3 text-white" />,
+        label: 'Expired'
+      };
+    } else if (expiry <= oneMonthFromNow) {
+      return { 
+        status: 'expiring-soon', 
+        icon: <HiCheck className="w-3 h-3 text-white" />,
+        label: 'Almost Expired'
+      };
+    } else {
+      return { 
+        status: 'valid', 
+        icon: <HiCheck className="w-3 h-3 text-white" />,
+        label: 'Valid'
+      };
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <motion.div 
+        className="flex-1 flex flex-col min-h-screen bg-blue-400"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.2 }}
+      >
+        <div className="flex-1 flex items-center justify-center">
+          <motion.div 
+            className="text-center"
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ duration: 0.3 }}
+          >
+            <div className="relative">
+              <svg className="animate-spin h-16 w-16 text-white mx-auto mb-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              <motion.div 
+                className="absolute inset-0 flex items-center justify-center"
+                animate={{ scale: [1, 1.1, 1] }}
+                transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+              >
+                <div className="w-8 h-8 bg-blue-400 rounded-full"></div>
+              </motion.div>
+            </div>
+            <motion.p 
+              className="text-white text-xl font-medium mb-2"
+              animate={{ opacity: [0.7, 1, 0.7] }}
+              transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+            >
+              Loading Profile Data
+            </motion.p>
+            <p className="text-blue-100 text-sm">Retrieving your information from the database...</p>
+          </motion.div>
+        </div>
+      </motion.div>
+    );
+  }
+
+  return (
+    <motion.div 
+      className="flex-1 flex flex-col min-h-screen bg-blue-400"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.3 }}
+    >
+      <div className="px-6 pt-1 pb-1">
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-2xl font-bold text-white">Profile Details</h1>
+          <button
+            onClick={() => setIsEditing(!isEditing)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
+              isEditing 
+                ? 'bg-gray-600 text-white hover:bg-gray-700' 
+                : 'bg-white text-blue-600 hover:bg-blue-50'
+            }`}
+          >
+            {isEditing ? (
+              <>
+                <HiX className="w-4 h-4" />
+                Cancel
+              </>
+            ) : (
+              <>
+                <HiPencilAlt className="w-4 h-4" />
+                Edit Profile
+              </>
+            )}
+          </button>
+        </div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+          className="bg-white rounded-lg shadow-lg p-4"
+        >
+          {/* Profile Header */}
+          <div className="flex items-start gap-4 mb-6 pb-4 border-b border-gray-200">
+            <div className="relative">
+              {user?.photoURL ? (
+                <Image
+                  src={user.photoURL}
+                  alt="Profile"
+                  width={60}
+                  height={60}
+                  className="rounded-full border-4 border-blue-200"
+                />
+              ) : (
+                <div className="w-15 h-15 bg-blue-100 rounded-full flex items-center justify-center">
+                  <HiUserGroup className="w-8 h-8 text-blue-600" />
+                </div>
+              )}
+              {isEditing && (
+                <button className="absolute -bottom-1 -right-1 bg-blue-600 text-white p-1 rounded-full hover:bg-blue-700 transition-colors">
+                  <HiPencilAlt className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-1">
+                <h2 className="text-xl font-bold text-gray-800">
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      name="fullName"
+                      value={formData.fullName}
+                      onChange={handleInputChange}
+                      className="border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                    />
+                  ) : (
+                    formData.fullName
+                  )}
+                </h2>
+                <span className="text-base text-blue-600 font-medium">• {formData.company}</span>
+              </div>
+              <p className="text-gray-600">
+                {isEditing ? (
+                  <input
+                    type="text"
+                    name="position"
+                    value={formData.position}
+                    onChange={handleInputChange}
+                    className="border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                  />
+                ) : (
+                  formData.position
+                )}
+              </p>
+            </div>
+          </div>
+
+          {/* Profile Information */}
+          <div className="mb-6">
+            {/* Personal Information Section */}
+            <h3 className="text-lg font-semibold text-gray-800 mb-3">Personal Information</h3>
+            
+            {/* Personal Information Card */}
+            <div className="bg-white rounded-lg shadow-md p-3 border border-gray-200">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Personal Details */}
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Email</label>
+                    {isEditing ? (
+                      <input
+                        type="email"
+                        name="email"
+                        value={formData.email}
+                        onChange={handleInputChange}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                      />
+                    ) : (
+                      <p className="text-gray-900 font-medium">{formData.email}</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Phone</label>
+                    {isEditing ? (
+                      <input
+                        type="tel"
+                        name="phone"
+                        value={formData.phone}
+                        onChange={handleInputChange}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                      />
+                    ) : (
+                      <p className="text-gray-900 font-medium">{formData.phone}</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Employee ID</label>
+                    {isEditing ? (
+                      <input
+                        type="text"
+                        name="employeeId"
+                        value={formData.employeeId}
+                        onChange={handleInputChange}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                      />
+                    ) : (
+                      <p className="text-gray-900 font-medium">{formData.employeeId}</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Address</label>
+                    {isEditing ? (
+                      <textarea
+                        name="address"
+                        value={formData.address}
+                        onChange={handleInputChange}
+                        rows={2}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                      />
+                    ) : (
+                      <p className="text-gray-900 font-medium">{formData.address}</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Company & Additional Details */}
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Department</label>
+                    {isEditing ? (
+                      <input
+                        type="text"
+                        name="department"
+                        value={formData.department}
+                        onChange={handleInputChange}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                      />
+                    ) : (
+                      <p className="text-gray-900 font-medium">{formData.department}</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Position</label>
+                    {isEditing ? (
+                      <input
+                        type="text"
+                        name="position"
+                        value={formData.position}
+                        onChange={handleInputChange}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                      />
+                    ) : (
+                      <p className="text-gray-900 font-medium">{formData.position}</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Start Date</label>
+                    {isEditing ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          name="startDate"
+                          value={formData.startDate}
+                          onChange={(e) => handleDateChange(e, 'startDate')}
+                          disabled={formData.startDateNotSpecified}
+                          className={`w-32 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 ${
+                            formData.startDateNotSpecified ? 'bg-gray-100 cursor-not-allowed' : ''
+                          }`}
+                          placeholder="DD/MM/YYYY"
+                          onBlur={() => {
+                            if (formData.startDate && formData.startDate.trim() !== '' && !validateDate(formData.startDate)) {
+                              setDateErrors(prev => ({ ...prev, startDate: 'Please enter a valid date in DD/MM/YYYY format' }));
+                            } else {
+                              setDateErrors(prev => ({ ...prev, startDate: '' }));
+                            }
+                          }}
+                        />
+                        <label className="flex items-center text-black flex-1 justify-end">
+                          <input
+                            type="checkbox"
+                            name="startDateNotSpecified"
+                            checked={formData.startDateNotSpecified}
+                            onChange={() => handleNotSpecifiedChange('startDateNotSpecified')}
+                            className="mr-1"
+                          />
+                          Not Specified
+                        </label>
+                      </div>
+                    ) : (
+                      <p className="text-gray-900 font-medium">
+                        {formData.startDateNotSpecified ? 'Not Specified' : formData.startDate}
+                      </p>
+                    )}
+                    {dateErrors.startDate && (
+                      <p className="text-red-500 text-xs mt-1">{dateErrors.startDate}</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Emergency Contact</label>
+                    {isEditing ? (
+                      <input
+                        type="text"
+                        name="emergencyContact"
+                        value={formData.emergencyContact}
+                        onChange={handleInputChange}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                      />
+                    ) : (
+                      <p className="text-gray-900 font-medium">{formData.emergencyContact}</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Emergency Phone</label>
+                    {isEditing ? (
+                      <input
+                        type="tel"
+                        name="emergencyPhone"
+                        value={formData.emergencyPhone}
+                        onChange={handleInputChange}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                      />
+                    ) : (
+                      <p className="text-gray-900 font-medium">{formData.emergencyPhone}</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Licenses & Certifications Section */}
+          <div className="border-t border-gray-200 pt-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-semibold text-gray-800">Licenses & Certifications</h3>
+              {isEditing && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={addLicense}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                  >
+                    <HiPlus className="w-4 h-4" />
+                    Add License
+                  </button>
+                  <button
+                    onClick={addCertification}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
+                  >
+                    <HiPlus className="w-4 h-4" />
+                    Add Certification
+                  </button>
+                </div>
+              )}
+            </div>
+            
+            {/* Two Column Layout */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Licenses Column */}
+              <div>
+                <h4 className="text-md font-semibold text-gray-700 mb-3">Licenses</h4>
+                <div className="space-y-2">
+                  {licenses.map((license, index) => {
+                    const expirationStatus = getExpirationStatus(license.expiryDate);
+                    return (
+                    <div key={license.id} className="bg-white rounded-lg shadow-md p-2 border border-gray-200">
+                      <div className="flex items-center justify-end mb-1">
+                        {isEditing && (
+                          <button
+                            onClick={() => removeLicense(license.id)}
+                            className="text-red-500 hover:text-red-700 transition-colors"
+                          >
+                            <HiTrash className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-1 gap-2">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">License Name</label>
+                          {isEditing ? (
+                            <input
+                              type="text"
+                              value={license.name}
+                              onChange={(e) => handleLicenseChange(license.id, 'name', e.target.value)}
+                              className="w-full border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 text-sm"
+                            />
+                          ) : (
+                            <p className="text-gray-900 font-medium text-sm">{license.name}</p>
+                          )}
+                        </div>
+
+                                            <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">License Number</label>
+                          {isEditing ? (
+                            <input
+                              type="text"
+                              value={license.number}
+                              onChange={(e) => handleLicenseChange(license.id, 'number', e.target.value)}
+                              className="w-full border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 text-sm"
+                            />
+                          ) : (
+                            <p className="text-gray-900 font-medium text-sm">{license.number}</p>
+                          )}
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Class</label>
+                          {isEditing ? (
+                            <input
+                              type="text"
+                              value={license.class}
+                              onChange={(e) => handleLicenseChange(license.id, 'class', e.target.value)}
+                              className="w-full border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 text-sm"
+                            />
+                          ) : (
+                            <p className="text-gray-900 font-medium text-sm">{license.class}</p>
+                          )}
+                        </div>
+
+                                            <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Issued Date</label>
+                          {isEditing ? (
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                value={license.issuedDate}
+                                onChange={(e) => handleDateChange(e, 'issuedDate', license.id)}
+                                disabled={license.issuedDateNotSpecified}
+                                className={`w-24 border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 text-sm ${
+                                  license.issuedDateNotSpecified ? 'bg-gray-100 cursor-not-allowed' : ''
+                                }`}
+                                placeholder="DD/MM/YYYY"
+                                onBlur={() => {
+                                  if (license.issuedDate && license.issuedDate.trim() !== '' && !validateDate(license.issuedDate)) {
+                                    setDateErrors(prev => ({ ...prev, [`issuedDate-${license.id}`]: 'Please enter a valid date in DD/MM/YYYY format' }));
+                                  } else {
+                                    setDateErrors(prev => ({ ...prev, [`issuedDate-${license.id}`]: '' }));
+                                  }
+                                }}
+                              />
+                              <label className="flex items-center text-black text-xs">
+                                <input
+                                  type="checkbox"
+                                  checked={license.issuedDateNotSpecified}
+                                  onChange={() => handleNotSpecifiedChange('issuedDateNotSpecified', license.id)}
+                                  className="mr-1"
+                                />
+                                Not Specified
+                              </label>
+                            </div>
+                          ) : (
+                            <p className="text-gray-900 font-medium text-sm">
+                              {license.issuedDateNotSpecified ? 'Not Specified' : license.issuedDate}
+                            </p>
+                          )}
+                          {dateErrors[`issuedDate-${license.id}`] && (
+                            <p className="text-red-500 text-xs mt-1">{dateErrors[`issuedDate-${license.id}`]}</p>
+                          )}
+                        </div>
+
+                                            <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Expiry Date</label>
+                          {isEditing ? (
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                value={license.expiryDate}
+                                onChange={(e) => handleDateChange(e, 'expiryDate', license.id)}
+                                disabled={license.expiryDateNotSpecified}
+                                className={`w-24 border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 text-sm ${
+                                  license.expiryDateNotSpecified ? 'bg-gray-100 cursor-not-allowed' : ''
+                                }`}
+                                placeholder="DD/MM/YYYY"
+                                onBlur={() => {
+                                  if (license.expiryDate && license.expiryDate.trim() !== '' && !validateDate(license.expiryDate)) {
+                                    setDateErrors(prev => ({ ...prev, [`expiryDate-${license.id}`]: 'Please enter a valid date in DD/MM/YYYY format' }));
+                                  } else {
+                                    setDateErrors(prev => ({ ...prev, [`expiryDate-${license.id}`]: '' }));
+                                  }
+                                }}
+                              />
+                              <label className="flex items-center text-black text-xs">
+                                <input
+                                  type="checkbox"
+                                  checked={license.expiryDateNotSpecified}
+                                  onChange={() => handleNotSpecifiedChange('expiryDateNotSpecified', license.id)}
+                                  className="mr-1"
+                                />
+                                Not Specified
+                              </label>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <p className="text-gray-900 font-medium text-sm">
+                                {license.expiryDateNotSpecified ? 'Not Specified' : license.expiryDate}
+                              </p>
+                              {license.expiryDateNotSpecified ? (
+                                <div className="flex items-center gap-1">
+                                  <div className="w-3 h-3 rounded-full flex items-center justify-center bg-green-500">
+                                    <HiCheck className="w-2 h-2 text-white" />
+                                  </div>
+                                  <span className="text-xs text-green-600">
+                                    Valid
+                                  </span>
+                                </div>
+                              ) : license.expiryDate && (
+                                <div className="flex items-center gap-1">
+                                  <div className={`w-3 h-3 rounded-full flex items-center justify-center ${
+                                    expirationStatus.status === 'valid' ? 'bg-green-500' :
+                                    expirationStatus.status === 'expiring-soon' ? 'bg-orange-500' :
+                                    'bg-red-500'
+                                  }`}>
+                                    {expirationStatus.icon}
+                                  </div>
+                                  <span className={`text-xs ${
+                                    expirationStatus.status === 'valid' ? 'text-green-600' :
+                                    expirationStatus.status === 'expiring-soon' ? 'text-orange-600' :
+                                    'text-red-600'
+                                  }`}>
+                                    {expirationStatus.label}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {dateErrors[`expiryDate-${license.id}`] && (
+                            <p className="text-red-500 text-xs mt-1">{dateErrors[`expiryDate-${license.id}`]}</p>
+                          )}
+                        </div>
+
+                                            <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Issuing Authority</label>
+                          {isEditing ? (
+                            <input
+                              type="text"
+                              value={license.issuingAuthority}
+                              onChange={(e) => handleLicenseChange(license.id, 'issuingAuthority', e.target.value)}
+                              className="w-full border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 text-sm"
+                            />
+                          ) : (
+                            <p className="text-gray-900 font-medium text-sm">{license.issuingAuthority}</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Certifications Column */}
+              <div>
+                <h4 className="text-md font-semibold text-gray-700 mb-3">Certifications</h4>
+                <div className="space-y-2">
+                  {certifications.map((certification, index) => {
+                    const expirationStatus = getExpirationStatus(certification.expiryDate);
+                    return (
+                    <div key={certification.id} className="bg-white rounded-lg shadow-md p-2 border border-gray-200">
+                      <div className="flex items-center justify-end mb-1">
+                        {isEditing && (
+                          <button
+                            onClick={() => removeCertification(certification.id)}
+                            className="text-red-500 hover:text-red-700 transition-colors"
+                          >
+                            <HiTrash className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-1 gap-2">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Certification Name</label>
+                          {isEditing ? (
+                            <input
+                              type="text"
+                              value={certification.name}
+                              onChange={(e) => handleCertificationChange(certification.id, 'name', e.target.value)}
+                              className="w-full border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 text-sm"
+                            />
+                          ) : (
+                            <p className="text-gray-900 font-medium text-sm">{certification.name}</p>
+                          )}
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Certification Number</label>
+                          {isEditing ? (
+                            <input
+                              type="text"
+                              value={certification.number}
+                              onChange={(e) => handleCertificationChange(certification.id, 'number', e.target.value)}
+                              className="w-full border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 text-sm"
+                            />
+                          ) : (
+                            <p className="text-gray-900 font-medium text-sm">{certification.number}</p>
+                          )}
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Class</label>
+                          {isEditing ? (
+                            <input
+                              type="text"
+                              value={certification.class}
+                              onChange={(e) => handleCertificationChange(certification.id, 'class', e.target.value)}
+                              className="w-full border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 text-sm"
+                            />
+                          ) : (
+                            <p className="text-gray-900 font-medium text-sm">{certification.class}</p>
+                          )}
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Issued Date</label>
+                          {isEditing ? (
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                value={certification.issuedDate}
+                                onChange={(e) => handleDateChange(e, 'issuedDate', certification.id, true)}
+                                disabled={certification.issuedDateNotSpecified}
+                                className={`w-24 border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 text-sm ${
+                                  certification.issuedDateNotSpecified ? 'bg-gray-100 cursor-not-allowed' : ''
+                                }`}
+                                placeholder="DD/MM/YYYY"
+                                onBlur={() => {
+                                  if (certification.issuedDate && certification.issuedDate.trim() !== '' && !validateDate(certification.issuedDate)) {
+                                    setDateErrors(prev => ({ ...prev, [`issuedDate-${certification.id}`]: 'Please enter a valid date in DD/MM/YYYY format' }));
+                                  } else {
+                                    setDateErrors(prev => ({ ...prev, [`issuedDate-${certification.id}`]: '' }));
+                                  }
+                                }}
+                              />
+                              <label className="flex items-center text-black text-xs">
+                                <input
+                                  type="checkbox"
+                                  checked={certification.issuedDateNotSpecified}
+                                  onChange={() => handleNotSpecifiedChange('issuedDateNotSpecified', certification.id, true)}
+                                  className="mr-1"
+                                />
+                                Not Specified
+                              </label>
+                            </div>
+                          ) : (
+                            <p className="text-gray-900 font-medium text-sm">
+                              {certification.issuedDateNotSpecified ? 'Not Specified' : certification.issuedDate}
+                            </p>
+                          )}
+                          {dateErrors[`issuedDate-${certification.id}`] && (
+                            <p className="text-red-500 text-xs mt-1">{dateErrors[`issuedDate-${certification.id}`]}</p>
+                          )}
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Expiry Date</label>
+                          {isEditing ? (
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                value={certification.expiryDate}
+                                onChange={(e) => handleDateChange(e, 'expiryDate', certification.id, true)}
+                                disabled={certification.expiryDateNotSpecified}
+                                className={`w-24 border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 text-sm ${
+                                  certification.expiryDateNotSpecified ? 'bg-gray-100 cursor-not-allowed' : ''
+                                }`}
+                                placeholder="DD/MM/YYYY"
+                                onBlur={() => {
+                                  if (certification.expiryDate && certification.expiryDate.trim() !== '' && !validateDate(certification.expiryDate)) {
+                                    setDateErrors(prev => ({ ...prev, [`expiryDate-${certification.id}`]: 'Please enter a valid date in DD/MM/YYYY format' }));
+                                  } else {
+                                    setDateErrors(prev => ({ ...prev, [`expiryDate-${certification.id}`]: '' }));
+                                  }
+                                }}
+                              />
+                              <label className="flex items-center text-black text-xs">
+                                <input
+                                  type="checkbox"
+                                  checked={certification.expiryDateNotSpecified}
+                                  onChange={() => handleNotSpecifiedChange('expiryDateNotSpecified', certification.id, true)}
+                                  className="mr-1"
+                                />
+                                Not Specified
+                              </label>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <p className="text-gray-900 font-medium text-sm">
+                                {certification.expiryDateNotSpecified ? 'Not Specified' : certification.expiryDate}
+                              </p>
+                              {certification.expiryDateNotSpecified ? (
+                                <div className="flex items-center gap-1">
+                                  <div className="w-3 h-3 rounded-full flex items-center justify-center bg-green-500">
+                                    <HiCheck className="w-2 h-2 text-white" />
+                                  </div>
+                                  <span className="text-xs text-green-600">
+                                    Valid
+                                  </span>
+                                </div>
+                              ) : certification.expiryDate && (
+                                <div className="flex items-center gap-1">
+                                  <div className={`w-3 h-3 rounded-full flex items-center justify-center ${
+                                    expirationStatus.status === 'valid' ? 'bg-green-500' :
+                                    expirationStatus.status === 'expiring-soon' ? 'bg-orange-500' :
+                                    'bg-red-500'
+                                  }`}>
+                                    {expirationStatus.icon}
+                                  </div>
+                                  <span className={`text-xs ${
+                                    expirationStatus.status === 'valid' ? 'text-green-600' :
+                                    expirationStatus.status === 'expiring-soon' ? 'text-orange-600' :
+                                    'text-red-600'
+                                  }`}>
+                                    {expirationStatus.label}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {dateErrors[`expiryDate-${certification.id}`] && (
+                            <p className="text-red-500 text-xs mt-1">{dateErrors[`expiryDate-${certification.id}`]}</p>
+                          )}
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Issuing Authority</label>
+                          {isEditing ? (
+                            <input
+                              type="text"
+                              value={certification.issuingAuthority}
+                              onChange={(e) => handleCertificationChange(certification.id, 'issuingAuthority', e.target.value)}
+                              className="w-full border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 text-sm"
+                            />
+                          ) : (
+                            <p className="text-gray-900 font-medium text-sm">{certification.issuingAuthority}</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Save/Cancel Buttons */}
+          {isEditing && (
+            <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-gray-200">
+              <button
+                onClick={handleCancel}
+                className="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                disabled={isSaving}
+              >
+                {isSaving ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <HiCheck className="w-4 h-4" />
+                    Save Changes
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+          {saveMessage && (
+            <div className={`mt-3 p-3 rounded-lg text-center ${saveMessage.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+              {saveMessage.text}
+            </div>
+          )}
+        </motion.div>
+      </div>
+    </motion.div>
+  );
+} 

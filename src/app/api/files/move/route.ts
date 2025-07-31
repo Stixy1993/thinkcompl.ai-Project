@@ -4,13 +4,13 @@ import { getFirestore, collection, addDoc } from 'firebase/firestore';
 
 // Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyAEsnbrP7qIoc8ym0KvqI0Z39aJyxP36FE",
-  authDomain: "thinkcompl-ai-project.firebaseapp.com",
-  projectId: "thinkcompl-ai-project",
-  storageBucket: "thinkcompl-ai-project.firebasestorage.app",
-  messagingSenderId: "116350304865",
-  appId: "1:116350304865:web:f833918de1511ef4cd2020",
-  measurementId: "G-549RCCFSQB"
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
 };
 
 export async function POST(request: NextRequest) {

@@ -1,0 +1,25 @@
+[33mcommit e19009ae0da1d013ee6b65373da572510658d7fb[m
+Author: Stixy1993 <hart.chris93@gmail.com>
+Date:   Thu Jul 31 14:10:28 2025 +1000
+
+    Save current working state - SharePoint integration with drag and drop, copy/paste, context menus working
+
+.env.local.backup.1753914373387
+.env.local.backup.1753914632814
+.env.local.backup.1753915020281
+.env.local.backup.1753916919428
+AZURE_SETUP_GUIDE.md
+src/app/api/sharepoint/auth/callback/route.ts
+src/app/api/sharepoint/auth/route.ts
+src/app/api/sharepoint/check-config/route.ts
+src/app/api/sharepoint/discover-site/route.ts
+src/app/api/sharepoint/route.ts
+src/app/api/sharepoint/save-config/route.ts
+src/app/dashboard/documents/page.tsx
+src/app/dashboard/page.tsx
+src/app/globals.css
+src/app/setup-sharepoint/page.tsx
+src/app/test-sharepoint-sites/page.tsx
+src/app/test-sharepoint/page.tsx
+src/app/update-sharepoint-config/page.tsx
+src/components/SharePointStatus.tsx

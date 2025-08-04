@@ -375,12 +375,12 @@ export default function SharePointSetupPage() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="block text-sm font-medium text-gray-700">Object ID</label>
+                  <label className="block text-sm font-medium text-gray-700">Directory (tenant) ID</label>
                   <input
                     type="text"
                     value={formData.tenantId}
                     onChange={(e) => handleInputChange('tenantId', e.target.value)}
-                    placeholder="Enter your Object ID"
+                    placeholder="Enter your Directory (tenant) ID"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-black"
                   />
                 </div>
@@ -473,6 +473,10 @@ export default function SharePointSetupPage() {
                           if (data.success) {
                             handleInputChange('siteId', data.siteId);
                             handleInputChange('driveId', data.driveId);
+                            // Use discovered tenant ID if available
+                            if (data.discoveredTenantId) {
+                              handleInputChange('tenantId', data.discoveredTenantId);
+                            }
                             setDiscoverySuccess(true);
                           } else {
                             console.error('Site discovery failed:', data.error);

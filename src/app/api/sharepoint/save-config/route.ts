@@ -18,8 +18,12 @@ function validateConfig(config: any) {
   const tenantIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const clientIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   
-  if (!tenantIdPattern.test(config.tenantId)) {
-    throw new Error('Invalid tenant ID format. Expected format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');
+  // Allow discovered tenant ID format (tenant.onmicrosoft.com) or UUID format
+  const tenantIdIsValid = tenantIdPattern.test(config.tenantId) || 
+    (config.tenantId && config.tenantId.includes('.onmicrosoft.com'));
+  
+  if (!tenantIdIsValid) {
+    throw new Error('Invalid tenant ID format. Expected format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx or tenant.onmicrosoft.com');
   }
   
   if (!clientIdPattern.test(config.clientId)) {

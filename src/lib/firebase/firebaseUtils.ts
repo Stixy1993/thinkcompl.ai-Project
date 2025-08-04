@@ -129,24 +129,30 @@ export interface Equipment {
 }
 
 export const saveUserProfile = async (profileData: Omit<UserProfile, 'uid' | 'updatedAt'>) => {
+  if (!auth) throw new Error("Firebase auth not initialized");
+  if (!db) throw new Error("Firebase db not initialized");
+  
   const user = auth.currentUser;
   if (!user) {
     throw new Error('User not authenticated');
   }
 
+  // Convert Date objects to Firestore Timestamps
+  const { serverTimestamp } = await import('firebase/firestore');
+  
   const profileWithMetadata = {
     ...profileData,
     uid: user.uid,
-    updatedAt: new Date(),
+    updatedAt: serverTimestamp(),
   };
 
   try {
     // Use setDoc with merge to create or update the profile
     await setDoc(doc(db, 'userProfiles', user.uid), profileWithMetadata, { merge: true });
     
-    // Update cache with new data
+    // Update cache with new data (use current timestamp for cache)
     profileCache.set(user.uid, {
-      data: profileWithMetadata,
+      data: { ...profileWithMetadata, updatedAt: new Date() },
       timestamp: Date.now()
     });
     
@@ -158,6 +164,9 @@ export const saveUserProfile = async (profileData: Omit<UserProfile, 'uid' | 'up
 };
 
 export const getUserProfile = async (): Promise<UserProfile | null> => {
+  if (!auth) throw new Error("Firebase auth not initialized");
+  if (!db) throw new Error("Firebase db not initialized");
+  
   const user = auth.currentUser;
   if (!user) {
     return null;

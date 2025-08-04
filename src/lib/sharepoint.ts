@@ -43,7 +43,7 @@ export interface SharePointError {
   };
 }
 
-// Cache for SharePoint responses
+// Enhanced cache for SharePoint responses with better invalidation
 class SharePointCache {
   private cache = new Map<string, { data: any; timestamp: number; ttl: number }>();
   
@@ -67,6 +67,7 @@ class SharePointCache {
     this.cache.clear();
   }
   
+  // Improved cache invalidation with pattern matching
   invalidate(pattern: string) {
     const keys = Array.from(this.cache.keys());
     for (const key of keys) {
@@ -74,6 +75,17 @@ class SharePointCache {
         this.cache.delete(key);
       }
     }
+  }
+  
+  // Invalidate all drive-related caches
+  invalidateDrive(driveId: string) {
+    this.invalidate(`items_${driveId}`);
+    this.invalidate(`search_${driveId}`);
+  }
+  
+  // Invalidate specific folder caches
+  invalidateFolder(driveId: string, folderPath: string) {
+    this.invalidate(`items_${driveId}_${folderPath}`);
   }
 }
 
@@ -104,7 +116,7 @@ class SharePointClient {
     return token;
   }
 
-  // Retry wrapper for API calls
+  // Enhanced retry wrapper for API calls with better error handling
   private async withRetry<T>(operation: () => Promise<T>): Promise<T> {
     let lastError: Error;
     
@@ -113,6 +125,7 @@ class SharePointClient {
         return await operation();
       } catch (error) {
         lastError = error as Error;
+        console.error(`SharePoint operation failed (attempt ${attempt}):`, error);
         
         if (attempt === this.maxRetries) {
           throw lastError;
@@ -209,7 +222,12 @@ class SharePointClient {
         });
         
         if (!response.ok) throw new Error('Failed to upload file');
-        return response.json();
+        const result = response.json();
+        
+        // Invalidate cache for the folder where file was uploaded
+        this.cache.invalidateFolder(driveId, folderPath);
+        
+        return result;
       });
     } else {
       // Large file - chunked upload
@@ -242,7 +260,12 @@ class SharePointClient {
       }
       
       // Complete upload
-      return await this.completeUpload(session.uploadUrl);
+      const result = await this.completeUpload(session.uploadUrl);
+      
+      // Invalidate cache for the folder where file was uploaded
+      this.cache.invalidateFolder(driveId, folderPath);
+      
+      return result;
     } finally {
       this.uploadSessions.delete(fileName);
     }
@@ -317,13 +340,15 @@ class SharePointClient {
     });
     
     // Invalidate cache for the parent folder
-    this.cache.invalidate(`items_${driveId}_${folderPath}`);
+    this.cache.invalidateFolder(driveId, folderPath);
     
     return result;
   }
 
-  // Move an item
+  // Enhanced move item with better error handling and cache invalidation
   async moveItem(driveId: string, itemId: string, targetFolderPath: string): Promise<SharePointItem> {
+    console.log(`Moving item ${itemId} to ${targetFolderPath}`);
+    
     const result = await this.withRetry(async () => {
       const response = await fetch(`${this.baseUrl}`, {
         method: 'POST',
@@ -338,13 +363,18 @@ class SharePointClient {
         }),
       });
       
-      if (!response.ok) throw new Error('Failed to move item');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(`Failed to move item: ${errorData.error || response.statusText}`);
+      }
+      
       return response.json();
     });
     
-    // Invalidate relevant caches
-    this.cache.invalidate(`items_${driveId}`);
+    // Invalidate all drive caches since items could be moved anywhere
+    this.cache.invalidateDrive(driveId);
     
+    console.log('Move operation completed successfully');
     return result;
   }
 
@@ -358,8 +388,8 @@ class SharePointClient {
       if (!response.ok) throw new Error('Failed to delete item');
     });
     
-    // Invalidate relevant caches
-    this.cache.invalidate(`items_${driveId}`);
+    // Invalidate all drive caches since items could be deleted from anywhere
+    this.cache.invalidateDrive(driveId);
   }
 
   // Search items

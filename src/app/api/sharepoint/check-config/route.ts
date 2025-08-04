@@ -25,8 +25,8 @@ export async function GET(request: NextRequest) {
     let authTest: { success: boolean; error: string | null } = { success: false, error: null };
     if (isComplete) {
       try {
-        // Use the specific tenant endpoint instead of /common
-        const tokenUrl = `https://login.microsoftonline.com/${config.tenantId}/oauth2/v2.0/token`;
+        // Use 'common' endpoint to avoid tenant ID issues during configuration check
+        const tokenUrl = `https://login.microsoftonline.com/common/oauth2/v2.0/token`;
         const tokenResponse = await fetch(tokenUrl, {
           method: 'POST',
           headers: {

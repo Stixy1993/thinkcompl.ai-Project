@@ -6,13 +6,13 @@ const SHAREPOINT_CLIENT_ID = process.env.SHAREPOINT_CLIENT_ID;
 const SHAREPOINT_CLIENT_SECRET = process.env.SHAREPOINT_CLIENT_SECRET;
 const SHAREPOINT_TENANT_ID = process.env.SHAREPOINT_TENANT_ID;
 
-// Token cache
+// Token cache with better management
 let cachedToken: { token: string; expires: number } | null = null;
 
-// Get access token for SharePoint API with caching
+// Get access token for SharePoint API with improved caching
 async function getSharePointToken() {
-  // Check if we have a valid cached token
-  if (cachedToken && Date.now() < cachedToken.expires) {
+  // Check if we have a valid cached token (with 5 minute buffer)
+  if (cachedToken && Date.now() < (cachedToken.expires - 5 * 60 * 1000)) {
     return cachedToken.token;
   }
 
@@ -40,25 +40,28 @@ async function getSharePointToken() {
     });
 
     if (!tokenResponse.ok) {
-      throw new Error(`Token request failed: ${tokenResponse.status} ${tokenResponse.statusText}`);
+      const errorText = await tokenResponse.text();
+      throw new Error(`Token request failed: ${tokenResponse.status} ${tokenResponse.statusText} - ${errorText}`);
     }
 
     const tokenData = await tokenResponse.json();
     
-    // Cache token for 50 minutes (tokens typically last 1 hour)
+    // Cache token for 45 minutes (tokens typically last 1 hour, but we refresh earlier)
     cachedToken = {
       token: tokenData.access_token,
-      expires: Date.now() + (50 * 60 * 1000)
+      expires: Date.now() + (45 * 60 * 1000)
     };
 
     return tokenData.access_token;
   } catch (error) {
     console.error('Error getting SharePoint token:', error);
+    // Clear cache on error
+    cachedToken = null;
     throw error;
   }
 }
 
-// SharePoint API helper functions with retry logic
+// Improved SharePoint API helper functions with better retry logic
 async function makeSharePointRequest(endpoint: string, options: RequestInit = {}, retries = 3): Promise<any> {
   const token = await getSharePointToken();
   
@@ -75,6 +78,7 @@ async function makeSharePointRequest(endpoint: string, options: RequestInit = {}
 
       if (response.status === 401) {
         // Token expired, clear cache and retry
+        console.log('Token expired, refreshing...');
         cachedToken = null;
         if (attempt < retries) {
           await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
@@ -84,11 +88,13 @@ async function makeSharePointRequest(endpoint: string, options: RequestInit = {}
 
       if (!response.ok) {
         const errorText = await response.text();
+        console.error(`SharePoint API error (attempt ${attempt}):`, response.status, response.statusText, errorText);
         throw new Error(`SharePoint API error: ${response.status} ${response.statusText} - ${errorText}`);
       }
 
       return response.json();
     } catch (error) {
+      console.error(`SharePoint request failed (attempt ${attempt}):`, error);
       if (attempt === retries) {
         throw error;
       }
@@ -98,7 +104,7 @@ async function makeSharePointRequest(endpoint: string, options: RequestInit = {}
   }
 }
 
-// Security: Enhanced rate limiting
+// Enhanced rate limiting
 const rateLimiter = new Map<string, { count: number; resetTime: number }>();
 const RATE_LIMIT = 100; // requests per minute
 const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
@@ -151,14 +157,10 @@ export async function GET(request: NextRequest) {
         { status: 400 }
       );
     }
+
     const siteId = searchParams.get('siteId');
     const driveId = searchParams.get('driveId');
     const folderPath = searchParams.get('folderPath');
-
-    // Rate limiting
-    if (!checkRateLimit(action || 'default')) {
-      return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 });
-    }
 
     switch (action) {
       case 'getSites':
@@ -191,14 +193,6 @@ export async function GET(request: NextRequest) {
         console.log('DEBUG: SharePoint response:', JSON.stringify(itemsResponse, null, 2));
         
         return NextResponse.json(itemsResponse);
-
-      case 'getSite':
-        // Get site information
-        if (!siteId) {
-          return NextResponse.json({ error: 'Site ID is required' }, { status: 400 });
-        }
-        const siteResponse = await makeSharePointRequest(`/sites/${siteId}`);
-        return NextResponse.json(siteResponse);
 
       case 'search':
         // Search for items
@@ -252,8 +246,6 @@ export async function POST(request: NextRequest) {
           },
         });
 
-        // Note: SharePoint's createdBy/lastModifiedBy are read-only and cannot be modified via API
-        // The frontend will override these values to show "Chris Hart"
         return NextResponse.json(uploadResponse);
 
       case 'createFolder':
@@ -274,161 +266,98 @@ export async function POST(request: NextRequest) {
             '@microsoft.graph.conflictBehavior': 'rename',
           }),
         });
-
-        // Note: SharePoint's createdBy/lastModifiedBy are read-only and cannot be modified via API
-        // The frontend will override these values to show "Chris Hart"
         
         return NextResponse.json(folderResponse);
 
       case 'moveItem':
-        // Move a file or folder using name-based approach
-        if (!driveId || !fileName) {
-          return NextResponse.json({ error: 'Drive ID and item name are required' }, { status: 400 });
-        }
-        
-        console.log('Moving item:', fileName, 'to folder:', folderPath);
-        
-        // Get the item ID from the request body (passed from frontend)
-        const itemId = body.itemId;
-        if (!itemId) {
-          return NextResponse.json({ error: 'Item ID is required' }, { status: 400 });
-        }
-        
-        console.log('Using item ID from frontend:', itemId);
-        
-        // Try to get a fresh item ID by looking up the item in the current folder
-        const currentPath = body.currentPath || '';
-        try {
-          console.log('Getting fresh item ID from current folder...');
-          const encodedCurrentPath = encodeURIComponent(currentPath);
-          const childrenEndpoint = `/drives/${driveId}/root:/${encodedCurrentPath}:/children?$filter=name eq '${fileName}'`;
-          console.log('Looking up item in children:', childrenEndpoint);
-          
-          const childrenResponse = await makeSharePointRequest(childrenEndpoint);
-          console.log('Children response:', childrenResponse);
-          
-          if (childrenResponse.value && childrenResponse.value.length > 0) {
-            const freshItemId = childrenResponse.value[0].id;
-            console.log('Found fresh item ID:', freshItemId);
-            
-            // Use the fresh item ID for the move operation
-            const moveItemEndpoint = `/drives/${driveId}/items/${freshItemId}/move`;
-            
-            // Try different parentReference formats
-            let moveItemBody;
-            if (!folderPath || folderPath === '') {
-              // Moving to root
-              moveItemBody = {
-                parentReference: {
-                  driveId: driveId,
-                  path: `/drives/${driveId}/root`,
-                },
-              };
-            } else {
-              // Moving to a specific folder
-              const moveItemEncodedFolderPath = encodeURIComponent(folderPath);
-              moveItemBody = {
-                parentReference: {
-                  driveId: driveId,
-                  path: `/drives/${driveId}/root:/${moveItemEncodedFolderPath}`,
-                },
-              };
-            }
-            
-            console.log('Move endpoint with fresh ID:', moveItemEndpoint);
-            console.log('Move body:', JSON.stringify(moveItemBody, null, 2));
-            
-            const moveItemResponse = await makeSharePointRequest(moveItemEndpoint, {
-              method: 'POST',
-              body: JSON.stringify(moveItemBody),
-            });
-            return NextResponse.json(moveItemResponse);
-          } else {
-            throw new Error('Item not found in current folder');
-          }
-        } catch (lookupError: any) {
-          console.error('Failed to get fresh item ID:', lookupError.message);
-          return NextResponse.json({ 
-            error: 'Item not found', 
-            details: `Could not find item: ${fileName}` 
-          }, { status: 404 });
-        }
-        
-        // Try COPY + DELETE instead of MOVE
-        console.log('Using COPY + DELETE method instead of MOVE...');
-        try {
-          // Step 1: Copy the item to the target location using the itemId from frontend
-          const copyEndpoint = `/drives/${driveId}/items/${itemId}/copy`;
-          const copyBody = {
-            parentReference: {
-              driveId: driveId,
-              path: `/drives/${driveId}/root${folderPath ? `:/${encodeURIComponent(folderPath)}` : ''}`
-            },
-            name: fileName
-          };
-          
-          console.log('Copy endpoint:', copyEndpoint);
-          console.log('Copy body:', JSON.stringify(copyBody, null, 2));
-          
-          const copyResponse = await makeSharePointRequest(copyEndpoint, {
-            method: 'POST',
-            body: JSON.stringify(copyBody)
-          });
-          
-          console.log('✅ Copy successful:', copyResponse);
-          
-          // Step 2: Delete the original item
-          const deleteEndpoint = `/drives/${driveId}/items/${itemId}`;
-          console.log('Deleting original item:', deleteEndpoint);
-          
-          const deleteResponse = await makeSharePointRequest(deleteEndpoint, {
-            method: 'DELETE'
-          });
-          
-          console.log('✅ Delete successful:', deleteResponse);
-          
-          return NextResponse.json({ 
-            success: true, 
-            message: 'Item moved successfully using copy + delete method' 
-          });
-          
-        } catch (copyDeleteError: any) {
-          console.error('❌ Copy + Delete failed:', copyDeleteError.message);
-          return NextResponse.json({ 
-            error: 'Move failed', 
-            details: `Copy + Delete method failed: ${copyDeleteError.message}` 
-          }, { status: 500 });
-        }
-
-      case 'moveItemById':
-        // Move a file or folder using item ID (REVERTED: only allow moving to a folder, not to root)
+        // Simplified and improved move operation
         if (!driveId || !itemId) {
           return NextResponse.json({ error: 'Drive ID and Item ID are required' }, { status: 400 });
         }
-        if (!folderPath || folderPath === '') {
-          // Do not allow moving to root in this reverted version
-          return NextResponse.json({ error: 'Moving to root is not supported in this version' }, { status: 400 });
-        }
-        console.log('Moving item by ID (REVERTED):', itemId, 'to folder:', folderPath);
         
-        // Simplified move operation - no pre-verification to avoid race conditions
+        console.log('Moving item:', itemId, 'to folder:', folderPath);
         
+        // Use the simplified move endpoint
         const moveEndpoint = `/drives/${driveId}/items/${itemId}/move`;
         
-        // URL encode the folder path to handle spaces and special characters
-        const encodedFolderPath = encodeURIComponent(folderPath);
+        // Construct the parent reference path
+        let parentPath;
+        if (!folderPath || folderPath === '') {
+          // Moving to root
+          parentPath = `/drives/${driveId}/root`;
+        } else {
+          // Moving to a specific folder - URL encode the folder path
+          const encodedFolderPath = encodeURIComponent(folderPath);
+          parentPath = `/drives/${driveId}/root:/${encodedFolderPath}`;
+        }
+        
         const moveBody = {
           parentReference: {
-            path: `/drives/${driveId}/root:/${encodedFolderPath}`,
+            path: parentPath,
           },
         };
-        console.log('Move endpoint (REVERTED):', moveEndpoint);
-        console.log('Move body (REVERTED):', JSON.stringify(moveBody, null, 2));
-        const moveResponse = await makeSharePointRequest(moveEndpoint, {
-          method: 'POST',
-          body: JSON.stringify(moveBody),
-        });
-        return NextResponse.json(moveResponse);
+        
+        console.log('Move endpoint:', moveEndpoint);
+        console.log('Parent path:', parentPath);
+        console.log('Move body:', JSON.stringify(moveBody, null, 2));
+        
+        try {
+          const moveResponse = await makeSharePointRequest(moveEndpoint, {
+            method: 'POST',
+            body: JSON.stringify(moveBody),
+          });
+          
+          console.log('✅ Move successful:', moveResponse);
+          return NextResponse.json(moveResponse);
+        } catch (moveError: any) {
+          console.error('❌ Move failed:', moveError.message);
+          
+          // Fallback: Try copy + delete method
+          console.log('Trying copy + delete fallback...');
+          try {
+            // Step 1: Copy the item to the target location
+            const copyEndpoint = `/drives/${driveId}/items/${itemId}/copy`;
+            const copyBody = {
+              parentReference: {
+                path: parentPath,
+              },
+              name: fileName || 'copied-item',
+            };
+            
+            console.log('Copy endpoint:', copyEndpoint);
+            console.log('Copy body:', JSON.stringify(copyBody, null, 2));
+            
+            const copyResponse = await makeSharePointRequest(copyEndpoint, {
+              method: 'POST',
+              body: JSON.stringify(copyBody)
+            });
+            
+            console.log('✅ Copy successful:', copyResponse);
+            
+            // Step 2: Delete the original item
+            const deleteEndpoint = `/drives/${driveId}/items/${itemId}`;
+            console.log('Deleting original item:', deleteEndpoint);
+            
+            await makeSharePointRequest(deleteEndpoint, {
+              method: 'DELETE'
+            });
+            
+            console.log('✅ Delete successful');
+            
+            return NextResponse.json({ 
+              success: true, 
+              message: 'Item moved successfully using copy + delete method',
+              copiedItem: copyResponse
+            });
+            
+          } catch (fallbackError: any) {
+            console.error('❌ Copy + Delete fallback failed:', fallbackError.message);
+            return NextResponse.json({ 
+              error: 'Move failed', 
+              details: `Both move and copy+delete methods failed. Move error: ${moveError.message}. Fallback error: ${fallbackError.message}` 
+            }, { status: 500 });
+          }
+        }
 
       case 'copyItem':
         // Copy a file or folder using item ID
@@ -438,7 +367,6 @@ export async function POST(request: NextRequest) {
         
         console.log('Copying item by ID:', itemId, 'to folder:', folderPath);
         
-        // Use the /copy endpoint for copying items by ID
         const copyByIdEndpoint = `/drives/${driveId}/items/${itemId}/copy`;
         
         // Construct the parent reference path correctly

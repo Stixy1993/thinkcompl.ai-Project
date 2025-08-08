@@ -117,7 +117,7 @@ export default function DashboardPage() {
                       <div className="bg-white rounded-2xl shadow-2xl p-8">
             <div className="text-center">
               <h2 className="text-3xl font-bold text-black mb-4">
-                Welcome{user && user.displayName ? ` ${user.displayName.split(' ')[0]}` : ''}!
+                Welcome{user && user.displayName ? ` ${user.displayName.split(" ")[0]}` : ""}!
               </h2>
                                         <p className="text-lg text-gray-600 mb-8">
                             Get started with thinkcompl.ai in three simple steps
@@ -142,7 +142,7 @@ export default function DashboardPage() {
                 <div className="text-center">
                   {getStepNumber(3)}
                   <h3 className="font-semibold text-gray-900 mb-2">Use AI Capabilities</h3>
-                  <p className="text-sm text-gray-600 mb-4">Leverage ThinkComplAI's unique AI to automate QA and compliance needs</p>
+                  <p className="text-sm text-gray-600 mb-4">Leverage ThinkComplAI&apos;s unique AI to automate QA and compliance needs</p>
                   {getStepButton(3)}
                 </div>
               </div>

@@ -8,11 +8,11 @@ import { HiHome, HiFolderOpen, HiChartBar, HiDocumentText, HiPhotograph, HiPenci
 import { FaCog } from "react-icons/fa";
 import { HiOutlineSearch } from "react-icons/hi";
 import { useState, useRef, useEffect } from "react";
-import LightbulbCheckAnimated from "../../components/LightbulbCheckAnimated";
-import { useAuth } from "../../lib/hooks/useAuth";
+import LightbulbCheckAnimated from "@/components/LightbulbCheckAnimated";
+import { useAuth } from "@/lib/hooks/useAuth";
 import { AnimatePresence, motion } from "framer-motion";
-import { logoutUser } from "../../lib/firebase/firebaseUtils";
-import ChatWidget from "../../components/ChatWidget";
+import { logoutUser } from "@/lib/firebase/firebaseUtils";
+import ChatWidget from "@/components/ChatWidget";
 
 const navItems = [
   { label: "Dashboard", icon: HiHome, href: "/dashboard" },
@@ -27,6 +27,7 @@ const navItems = [
   { label: "Delivery Acknowledgements", icon: HiClipboardCopy, href: "/dashboard/delivery-acknowledgements" },
   { label: "Factory Acceptance Tests", icon: HiOfficeBuilding, href: "/dashboard/factory-acceptance-tests" },
   { label: "Calibration & Licenses", icon: HiBadgeCheck, href: "/dashboard/calibration-licenses" },
+  { label: "Team Members", icon: HiUserGroup, href: "/dashboard/team-members" },
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -69,18 +70,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     <div className="flex h-screen bg-blue-400 overflow-hidden">
       {/* Sidebar - Fixed */}
       <aside
-        className={`fixed left-0 top-0 bottom-0 flex flex-col pt-6 pb-0 px-2 shadow-lg bg-white border-r border-gray-200 transition-all duration-200 z-30 ${collapsed ? "w-14" : "w-64 px-4"}`}
+        className={`fixed left-0 top-0 bottom-0 flex flex-col pt-6 pb-0 px-2 shadow-lg bg-white border-r border-gray-200 transition-all duration-200 z-30 ${collapsed ? "w-14" : "w-48 px-4"}`}
       >
-        {/* Compl.ai Logo at the top of the sidebar, perfectly centered */}
-        <div className="flex items-center justify-center h-10 -mt-4 mb-4 transition-all duration-200">
-          <Image
-            src="/Compl.ai Logo Black.svg"
-            alt="Compl.ai Logo Black"
-            width={36}
-            height={36}
-            priority
-            style={{ width: 'auto', height: 'auto' }}
-          />
+        {/* Compl.ai Logo at the top of the sidebar, positioned against the left border */}
+        <div className="flex items-center h-10 -mt-4 mb-4 transition-all duration-200">
+          <div className={`flex items-center gap-2 ${collapsed ? "justify-center w-full" : ""}`}>
+            <Image
+              src="/Compl.ai Logo Black.svg"
+              alt="Compl.ai Logo Black"
+              width={36}
+              height={36}
+              priority
+              className="flex-shrink-0"
+            />
+            {!collapsed && (
+              <span className="text-lg font-bold text-gray-800">Menu</span>
+            )}
+          </div>
         </div>
         
         {/* Navigation items - take up available space */}
@@ -90,24 +96,30 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             const isActive = item.label === "Dashboard" 
               ? pathname === "/dashboard" 
               : pathname.startsWith(item.href || "");
-            const buttonContent = (
-              <>
-                <Icon className={`w-8 h-8 ${isActive ? "text-blue-700" : "text-blue-500"}`} />
-                {!collapsed && <span className="text-sm">{item.label}</span>}
-              </>
-            );
             return (
               <div key={item.label} className="relative group">
                 {item.href ? (
                   <Link href={item.href} legacyBehavior>
-                    <a className={`w-full flex items-center gap-3 px-2 py-2 rounded-lg text-left text-gray-700 hover:bg-blue-200 transition ${isActive ? "bg-blue-200 font-semibold text-blue-700" : ""} ${collapsed ? "justify-center" : ""}`}>{buttonContent}</a>
+                    <a className={`w-full flex items-center px-2 py-2 rounded-lg text-left text-gray-700 hover:bg-blue-200 transition ${isActive ? "bg-blue-200 font-semibold text-blue-700" : ""} ${collapsed ? "justify-center" : ""}`}>
+                      <div className="flex items-center w-full">
+                        <div className={`flex items-center justify-center flex-shrink-0 ${collapsed ? "w-full" : "w-8"}`}>
+                          <Icon className={`w-8 h-8 ${isActive ? "text-blue-700" : "text-blue-500"}`} />
+                        </div>
+                        {!collapsed && <span className="text-sm ml-2">{item.label}</span>}
+                      </div>
+                    </a>
                   </Link>
                 ) : (
                   <button
-                    className={`w-full flex items-center gap-3 px-2 py-2 rounded-lg text-left text-gray-700 hover:bg-blue-200 transition ${isActive ? "bg-blue-200 font-semibold text-blue-700" : ""} ${collapsed ? "justify-center" : ""}`}
+                    className={`w-full flex items-center px-2 py-2 rounded-lg text-left text-gray-700 hover:bg-blue-200 transition ${isActive ? "bg-blue-200 font-semibold text-blue-700" : ""} ${collapsed ? "justify-center" : ""}`}
                     disabled={item.label !== "Dashboard"}
                   >
-                    {buttonContent}
+                    <div className="flex items-center w-full">
+                      <div className={`flex items-center justify-center flex-shrink-0 ${collapsed ? "w-full" : "w-8"}`}>
+                        <Icon className={`w-8 h-8 ${isActive ? "text-blue-700" : "text-blue-500"}`} />
+                      </div>
+                      {!collapsed && <span className="text-sm ml-2">{item.label}</span>}
+                    </div>
                   </button>
                 )}
                 {collapsed && (
@@ -138,9 +150,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </aside>
 
       {/* Main content area - with margin to account for fixed sidebar */}
-      <div className={`flex-1 flex flex-col ${collapsed ? "ml-14" : "ml-64"} transition-all duration-200`}>
+      <div className={`flex-1 flex flex-col ${collapsed ? "ml-14" : "ml-48"} transition-all duration-200`}>
         {/* Header - Fixed */}
-        <header className="fixed top-0 right-0 left-0 flex items-center justify-between px-4 py-2 bg-blue-500 shadow-md z-20" style={{ left: collapsed ? '3.5rem' : '16rem', right: '14px' }}>
+        <header className="fixed top-0 right-0 left-0 flex items-center justify-between px-4 py-2 bg-blue-500 shadow-md z-20" style={{ left: collapsed ? '3.5rem' : '12rem', right: '14px' }}>
           <div className="flex items-center gap-4">
             <span className="text-2xl font-bold text-white">thinkcompl<span className="text-blue-200">.ai</span></span>
           </div>

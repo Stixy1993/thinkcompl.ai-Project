@@ -1,6 +1,5 @@
 import { anthropic } from "@ai-sdk/anthropic";
 import { convertToCoreMessages, streamText } from "ai";
-import { CLAUDE_API_KEY } from "./claude-api-key";
 
 // Claude model configuration with automatic updates
 export interface ClaudeModel {
@@ -115,7 +114,7 @@ export class ClaudeService {
     const systemPrompt = request.systemPrompt || THINKY_SYSTEM_PROMPTS.default;
     
     const result = await streamText({
-      model: anthropic(model, { apiKey: CLAUDE_API_KEY }),
+      model: anthropic(model),
       messages: convertToCoreMessages(request.messages),
       system: systemPrompt,
       maxTokens: request.maxTokens || 4000,

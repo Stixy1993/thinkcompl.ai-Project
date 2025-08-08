@@ -1,0 +1,41 @@
+warning: in the working copy of 'src/app/api/sharepoint/auth/callback/route.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/api/sharepoint/auth/route.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/api/sharepoint/check-config/route.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/dashboard/calibration-licenses/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/dashboard/documents/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/dashboard/layout.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/dashboard/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/setup-sharepoint/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/signin/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/components/ChatWidget.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/components/SharePointAuthButton.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/components/SignInWithGoogle.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/lib/claude.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/lib/contexts/AuthContext.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/lib/firebase/firebase.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/lib/firebase/firebaseUtils.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/lib/hooks/useThinky.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/lib/sharepoint-auth.ts', LF will be replaced by CRLF the next time Git touches it
+firestore.rules
+src/app/api/sharepoint/auth/callback/route.ts
+src/app/api/sharepoint/auth/route.ts
+src/app/api/sharepoint/check-config/route.ts
+src/app/api/sharepoint/save-config/route.ts
+src/app/api/test-sharepoint/route.ts
+src/app/dashboard/calibration-licenses/page.tsx
+src/app/dashboard/documents/page.tsx
+src/app/dashboard/layout.tsx
+src/app/dashboard/page.tsx
+src/app/setup-sharepoint/page.tsx
+src/app/signin/page.tsx
+src/app/update-sharepoint-config/page.tsx
+src/components/ChatWidget.tsx
+src/components/SharePointAuthButton.tsx
+src/components/SignInWithGoogle.tsx
+src/lib/claude.ts
+src/lib/contexts/AuthContext.tsx
+src/lib/firebase/firebase.ts
+src/lib/firebase/firebaseUtils.ts
+src/lib/hooks/useThinky.ts
+src/lib/sharepoint-auth.ts
+src/types/vercel-ai.d.ts

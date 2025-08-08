@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useThinky } from "@/lib/hooks/useThinky";
 import { useAuth } from "@/lib/hooks/useAuth";
+import { HiPlus, HiTrash, HiClock, HiChat } from "react-icons/hi";
 
 interface Message {
   id: string;
@@ -20,6 +21,8 @@ export default function ChatWidget({ fullPage = false, apiEndpoint }: ChatWidget
   const [mounted, setMounted] = useState(false);
   const [isOpen, setIsOpen] = useState(fullPage ? true : false);
   const [error, setError] = useState<string | null>(null);
+  const [showSessions, setShowSessions] = useState(false);
+  const [isCreatingNewChat, setIsCreatingNewChat] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [showLoading, setShowLoading] = useState(false);
   
@@ -32,6 +35,14 @@ export default function ChatWidget({ fullPage = false, apiEndpoint }: ChatWidget
     askCompliance,
     askTechnical,
     askGeneral,
+    // New session management
+    currentSessionId,
+    chatSessions,
+    isLoadingSessions,
+    loadSession,
+    createNewSession,
+    deleteSession,
+    refreshSessions,
   } = useThinky({
     initialContext: { type: 'general' },
     stream: false, // Disable streaming - responses will appear all at once
@@ -44,10 +55,15 @@ export default function ChatWidget({ fullPage = false, apiEndpoint }: ChatWidget
     setMounted(true);
   }, []);
 
-  // Auto-scroll to bottom when new messages arrive
+  // Auto-scroll to bottom when new messages arrive or when component mounts
   useEffect(() => {
-    scrollToBottom();
-  }, [thinkyMessages]);
+    if (messagesEndRef.current) {
+      // Use a small delay to ensure the messages are rendered
+      setTimeout(() => {
+        scrollToBottom();
+      }, 100);
+    }
+  }, [thinkyMessages, mounted]);
 
   // Handle loading state more smoothly and scroll when loading starts
   useEffect(() => {
@@ -66,10 +82,14 @@ export default function ChatWidget({ fullPage = false, apiEndpoint }: ChatWidget
     }
   }, [isLoading]);
 
-  // Remove the complex message-based loading logic
-
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (messagesEndRef.current) {
+      const chatContainer = messagesEndRef.current.parentElement;
+      if (chatContainer) {
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+      }
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
   };
 
   const handleSendMessage = async () => {
@@ -109,6 +129,38 @@ export default function ChatWidget({ fullPage = false, apiEndpoint }: ChatWidget
     setError(null);
   };
 
+  const handleNewChat = async () => {
+    try {
+      setIsCreatingNewChat(true);
+      await createNewSession();
+      setShowSessions(false);
+    } catch (error) {
+      console.error('Error creating new chat session:', error);
+    } finally {
+      setIsCreatingNewChat(false);
+    }
+  };
+
+  const handleLoadSession = async (sessionId: string) => {
+    try {
+      await loadSession(sessionId);
+      setShowSessions(false);
+    } catch (error) {
+      console.error('Error loading chat session:', error);
+    }
+  };
+
+  const handleDeleteSession = async (sessionId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      if (confirm('Are you sure you want to delete this chat session?')) {
+        await deleteSession(sessionId);
+      }
+    } catch (error) {
+      console.error('Error deleting chat session:', error);
+    }
+  };
+
   if (!mounted) {
     return null;
   }
@@ -117,8 +169,104 @@ export default function ChatWidget({ fullPage = false, apiEndpoint }: ChatWidget
   if (fullPage) {
     return (
       <div className="min-h-screen h-screen w-full flex flex-row bg-gradient-to-br from-gray-50 to-gray-200">
-        {/* Left side: Chat Panel - full width */}
-        <div className="w-1/2 h-full flex flex-col border-r border-gray-200 bg-white shadow-xl">
+        {/* Left side: Chat Sessions Panel */}
+        <div className="w-80 h-full flex flex-col border-r border-gray-200 bg-white shadow-xl">
+          {/* Sessions Header */}
+          <div className="p-4 border-b border-gray-200 bg-gray-50">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-gray-800">Chat Sessions</h2>
+              <button
+                onClick={handleNewChat}
+                disabled={isCreatingNewChat}
+                className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title="New Chat"
+              >
+                {isCreatingNewChat ? (
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                ) : (
+                  <HiPlus className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Sessions List */}
+          <div className="flex-1 overflow-y-auto">
+            {isLoadingSessions ? (
+              <div className="p-4 text-center text-gray-500">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto"></div>
+                <p className="mt-2">Loading sessions...</p>
+              </div>
+            ) : chatSessions.length === 0 ? (
+              <div className="p-4 text-center text-gray-500">
+                <HiChat className="w-8 h-8 mx-auto mb-2 text-gray-400" />
+                <p>No chat sessions yet</p>
+                <button
+                  onClick={handleNewChat}
+                  className="mt-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Start New Chat
+                </button>
+              </div>
+            ) : (
+              <div className="p-2">
+                {chatSessions.map((session) => (
+                  <div
+                    key={session.id}
+                    onClick={() => handleLoadSession(session.id)}
+                    className={`p-3 rounded-lg cursor-pointer transition-colors ${
+                      currentSessionId === session.id
+                        ? 'bg-blue-100 border border-blue-300'
+                        : 'hover:bg-gray-50 border border-transparent'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-sm font-medium text-gray-900 truncate">
+                          {session.title}
+                        </h3>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {(() => {
+                            try {
+                              const date = session.updatedAt instanceof Date 
+                                ? session.updatedAt 
+                                : new Date(session.updatedAt);
+                              
+                              const now = new Date();
+                              const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
+                              
+                              if (diffInHours < 1) {
+                                return 'Just now';
+                              } else if (diffInHours < 24) {
+                                return `${Math.floor(diffInHours)}h ago`;
+                              } else if (diffInHours < 48) {
+                                return 'Yesterday';
+                              } else {
+                                return date.toLocaleDateString();
+                              }
+                            } catch (error) {
+                              return 'Recent';
+                            }
+                          })()}
+                        </p>
+                      </div>
+                      <button
+                        onClick={(e) => handleDeleteSession(session.id, e)}
+                        className="ml-2 p-1 text-gray-400 hover:text-red-600 transition-colors"
+                        title="Delete session"
+                      >
+                        <HiTrash className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right side: Chat Panel */}
+        <div className="flex-1 h-full flex flex-col bg-white">
           {/* Error Message */}
           {error && (
             <div className="p-3 bg-red-50 border-b border-red-200">
@@ -212,10 +360,6 @@ export default function ChatWidget({ fullPage = false, apiEndpoint }: ChatWidget
             </div>
           </div>
         </div>
-        {/* Right side: Document Discussion Area placeholder */}
-        <div className="w-1/2 flex items-center justify-center border-l border-gray-200 bg-white/60">
-          <div className="text-gray-400 text-xl font-semibold">Document Discussion Area</div>
-        </div>
       </div>
     );
   }
@@ -261,14 +405,79 @@ export default function ChatWidget({ fullPage = false, apiEndpoint }: ChatWidget
                 <p className="text-xs text-blue-100">Project Assistant</p>
               </div>
             </div>
-            <button
-              onClick={() => setIsOpen(false)}
-              className="text-white hover:text-gray-200 hover:bg-blue-700 transition-colors p-2 rounded-lg"
-              title="Minimize"
-            >
-              ✕
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowSessions(!showSessions)}
+                className="text-white hover:text-gray-200 hover:bg-blue-700 transition-colors p-2 rounded-lg"
+                title="Chat Sessions"
+              >
+                <HiClock className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setIsOpen(false)}
+                className="text-white hover:text-gray-200 hover:bg-blue-700 transition-colors p-2 rounded-lg"
+                title="Minimize"
+              >
+                ✕
+              </button>
+            </div>
           </div>
+
+          {/* Sessions Panel */}
+          {showSessions && (
+            <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-b-lg shadow-lg z-10 max-h-48 overflow-y-auto">
+              <div className="p-2">
+                <div className="flex items-center justify-between p-2 border-b border-gray-100">
+                  <h3 className="text-sm font-medium text-gray-800">Chat Sessions</h3>
+                  <button
+                    onClick={handleNewChat}
+                    disabled={isCreatingNewChat}
+                    className="p-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="New Chat"
+                  >
+                    {isCreatingNewChat ? (
+                      <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white"></div>
+                    ) : (
+                      <HiPlus className="w-3 h-3" />
+                    )}
+                  </button>
+                </div>
+                {isLoadingSessions ? (
+                  <div className="p-2 text-center text-gray-500">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mx-auto"></div>
+                  </div>
+                ) : chatSessions.length === 0 ? (
+                  <div className="p-2 text-center text-gray-500 text-xs">
+                    No sessions yet
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    {chatSessions.slice(0, 5).map((session) => (
+                      <div
+                        key={session.id}
+                        onClick={() => handleLoadSession(session.id)}
+                        className={`p-2 rounded cursor-pointer transition-colors text-xs ${
+                          currentSessionId === session.id
+                            ? 'bg-blue-100 border border-blue-300'
+                            : 'hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="truncate flex-1">{session.title}</span>
+                          <button
+                            onClick={(e) => handleDeleteSession(session.id, e)}
+                            className="ml-1 p-1 text-gray-400 hover:text-red-600 transition-colors"
+                          >
+                            <HiTrash className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Error Message */}
           {error && (

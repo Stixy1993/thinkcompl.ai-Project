@@ -4,11 +4,22 @@ import { NextRequest, NextResponse } from 'next/server';
 const SHAREPOINT_CLIENT_ID = process.env.SHAREPOINT_CLIENT_ID;
 const SHAREPOINT_TENANT_ID = process.env.SHAREPOINT_TENANT_ID;
 const REDIRECT_URI = process.env.NODE_ENV === 'production' 
-  ? 'https://yourdomain.com/api/sharepoint/auth/callback'
+  ? 'https://thinkcompl.ai/api/sharepoint/auth/callback'
   : 'http://localhost:3000/api/sharepoint/auth/callback';
 
 export async function GET(request: NextRequest) {
   try {
+    const { searchParams } = new URL(request.url);
+    const action = searchParams.get('action');
+    
+    // Only proceed if action is 'login'
+    if (action !== 'login') {
+      return NextResponse.json(
+        { success: false, error: 'Invalid action. Use action=login' },
+        { status: 400 }
+      );
+    }
+    
     // Generate state parameter for security
     const state = Math.random().toString(36).substring(7);
     

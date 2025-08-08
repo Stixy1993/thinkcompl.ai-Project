@@ -3,14 +3,14 @@ import { getAuth, Auth } from "firebase/auth";
 import { getFirestore, Firestore, connectFirestoreEmulator } from "firebase/firestore";
 import { getStorage, FirebaseStorage } from "firebase/storage";
 
-// Firebase configuration - handle both environment variables and JavaScript object format
+// Firebase configuration - require environment variables
 const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyD5QNpXW7xt0M_-z4i9gZ-u8GWPCj4l004",
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "thinkcomplai.firebaseapp.com",
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "thinkcomplai",
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "thinkcomplai.firebasestorage.app",
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "459091731458",
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "1:459091731458:web:29ee7bcc661bbf5795b31b"
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID
 };
 
 // Initialize Firebase only on client side
@@ -21,17 +21,28 @@ let storage: FirebaseStorage | null = null;
 
 if (typeof window !== 'undefined') {
   try {
-    // Check if we have a real API key (not placeholder)
+    // Check if we have all required environment variables
     if (firebaseConfig.apiKey && 
-        firebaseConfig.apiKey !== "placeholder" && 
         firebaseConfig.authDomain && 
-        firebaseConfig.authDomain !== "placeholder") {
+        firebaseConfig.projectId &&
+        firebaseConfig.storageBucket &&
+        firebaseConfig.messagingSenderId &&
+        firebaseConfig.appId) {
+      
+      console.log("Initializing Firebase with config:", {
+        hasApiKey: !!firebaseConfig.apiKey,
+        hasAuthDomain: !!firebaseConfig.authDomain,
+        hasProjectId: !!firebaseConfig.projectId,
+        domain: firebaseConfig.authDomain
+      });
       
       // Initialize Firebase
       app = initializeApp(firebaseConfig);
+      console.log("Firebase app initialized");
 
       // Initialize Firebase services
       auth = getAuth(app);
+      console.log("Firebase auth initialized");
       db = getFirestore(app);
       storage = getStorage(app);
       
@@ -47,11 +58,22 @@ if (typeof window !== 'undefined') {
       //   enableFirebasePersistence();
       // });
     } else {
-      console.log("Firebase not initialized - missing proper configuration");
+      console.warn("Firebase not initialized - missing environment variables");
+      console.warn("Please create a .env.local file with your Firebase configuration");
+      console.warn("Missing variables:", {
+        apiKey: !!firebaseConfig.apiKey,
+        authDomain: !!firebaseConfig.authDomain,
+        projectId: !!firebaseConfig.projectId,
+        storageBucket: !!firebaseConfig.storageBucket,
+        messagingSenderId: !!firebaseConfig.messagingSenderId,
+        appId: !!firebaseConfig.appId
+      });
     }
   } catch (error) {
-    console.log("Firebase initialization failed:", error);
+    console.error("Firebase initialization failed:", error);
   }
+} else {
+  console.log("Firebase initialization skipped - not in browser environment");
 }
 
 export { auth, db, storage };

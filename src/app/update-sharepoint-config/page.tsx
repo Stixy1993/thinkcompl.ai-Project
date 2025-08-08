@@ -286,7 +286,7 @@ export default function UpdateSharePointConfigPage() {
             </p>
             <ol className="list-decimal list-inside space-y-2 text-blue-700">
               <li>Go to the dashboard</li>
-              <li>Click "Setup SharePoint"</li>
+              <li>Click &quot;Setup SharePoint&quot;</li>
               <li>Enter your Azure App Registration details</li>
               <li>Test the connection</li>
               <li>Save the configuration</li>

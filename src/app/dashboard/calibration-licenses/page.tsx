@@ -2,19 +2,15 @@
 
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { HiCog, HiUserGroup, HiCheckCircle, HiExclamationCircle, HiX, HiCheck } from "react-icons/hi";
+import { HiCog, HiExclamationCircle, HiX, HiCheck } from "react-icons/hi";
 import { useAuth } from "../../../lib/hooks/useAuth";
 import { getUserProfile, UserProfile, getEquipment, saveEquipment, deleteEquipment, Equipment } from "../../../lib/firebase/firebaseUtils";
-import Image from "next/image";
+import Combobox from "../../../components/Combobox";
 
 export default function CalibrationLicensesPage() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState("licenses");
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [showInviteModal, setShowInviteModal] = useState(false);
-  const [inviteForm, setInviteForm] = useState({ name: "", email: "" });
-  const [isSendingInvite, setIsSendingInvite] = useState(false);
   const [showEquipmentModal, setShowEquipmentModal] = useState(false);
   const [equipmentForm, setEquipmentForm] = useState({
     equipmentType: "",
@@ -61,11 +57,6 @@ export default function CalibrationLicensesPage() {
     loadData();
   }, [user]);
 
-  const tabs = [
-    { id: "calibration", label: "Equipment Calibration", icon: HiCog },
-    { id: "licenses", label: "Personnel Profiles", icon: HiUserGroup },
-  ];
-
   if (isLoading) {
     return (
       <motion.div 
@@ -108,19 +99,6 @@ export default function CalibrationLicensesPage() {
     );
   }
 
-  // Use profile data if available, otherwise fall back to Google auth data
-  const displayName = userProfile?.fullName || user?.displayName || "User";
-  const company = userProfile?.company || "thinkcompl.ai";
-  const position = userProfile?.position || "";
-  const licenses = userProfile?.licenses || [];
-  const certifications = userProfile?.certifications || [];
-
-  // Function to handle invitation form changes
-  const handleInviteFormChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setInviteForm(prev => ({ ...prev, [name]: value }));
-  };
-
   // Function to handle equipment form changes
   const handleEquipmentFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -138,6 +116,12 @@ export default function CalibrationLicensesPage() {
     if (name === "calibrationTestDate" && value) {
       suggestReTestDate(value);
     }
+  };
+
+  // Function to handle combobox equipment type changes
+  const handleEquipmentTypeChange = (value: string) => {
+    setEquipmentForm(prev => ({ ...prev, equipmentType: value }));
+    setValidationErrors(prev => ({ ...prev, equipmentType: "" }));
   };
 
   // Function to validate date fields
@@ -227,31 +211,6 @@ export default function CalibrationLicensesPage() {
       alert("Failed to delete equipment. Please try again.");
     } finally {
       setIsDeletingEquipment(false);
-    }
-  };
-
-  // Function to send invitation email
-  const handleSendInvitation = async () => {
-    if (!inviteForm.name.trim() || !inviteForm.email.trim()) {
-      alert("Please fill in both name and email address");
-      return;
-    }
-
-    setIsSendingInvite(true);
-    try {
-      // Here you would typically call your backend API to send the invitation
-      // For now, we'll simulate the API call
-      await new Promise(resolve => setTimeout(resolve, 2000)); // Simulate API delay
-      
-      // Reset form and close modal
-      setInviteForm({ name: "", email: "" });
-      setShowInviteModal(false);
-      alert("Invitation sent successfully!");
-    } catch (error) {
-      console.error('Error sending invitation:', error);
-      alert("Failed to send invitation. Please try again.");
-    } finally {
-      setIsSendingInvite(false);
     }
   };
 
@@ -358,38 +317,24 @@ export default function CalibrationLicensesPage() {
     }
   };
 
-  // Function to check if all licenses and certifications are valid
-  const checkAllValid = () => {
-    const now = new Date();
-    const oneMonthFromNow = new Date();
-    oneMonthFromNow.setMonth(oneMonthFromNow.getMonth() + 1);
-
-    // Check licenses
-    for (const license of licenses) {
-      if (license.expiryDate && license.expiryDate.trim() !== '' && !license.expiryDateNotSpecified) {
-        const [day, month, year] = license.expiryDate.split('/').map(Number);
-        const expiry = new Date(year, month - 1, day);
-        if (expiry < now) {
-          return false; // Found an expired license
-        }
-      }
-    }
-
-    // Check certifications
-    for (const certification of certifications) {
-      if (certification.expiryDate && certification.expiryDate.trim() !== '' && !certification.expiryDateNotSpecified) {
-        const [day, month, year] = certification.expiryDate.split('/').map(Number);
-        const expiry = new Date(year, month - 1, day);
-        if (expiry < now) {
-          return false; // Found an expired certification
-        }
-      }
-    }
-
-    return true; // All are valid
-  };
-
-  const allValid = checkAllValid();
+  // Equipment type options for the combobox
+  const equipmentTypeOptions = [
+    "Torque Wrench",
+    "Multimeter", 
+    "Insulation Resistance Tester",
+    "Ohm Meter",
+    "Multifunction Meter",
+    "Pressure Gauge",
+    "Temperature Sensor",
+    "Flow Meter",
+    "Level Sensor",
+    "Vibration Analyzer",
+    "Power Quality Analyzer",
+    "Oscilloscope",
+    "Signal Generator",
+    "Network Analyzer",
+    "Spectrum Analyzer"
+  ];
 
   return (
     <motion.div 
@@ -400,108 +345,86 @@ export default function CalibrationLicensesPage() {
     >
       <div className="px-6 pt-1 pb-1">
         <div className="flex items-center gap-6 mb-4">
-          <h1 className="text-2xl font-bold text-white">Calibration & Licenses</h1>
-          
-          {/* Tab Navigation */}
-          <div className="flex space-x-1">
-            {tabs.map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
-                    isActive
-                      ? "bg-white text-blue-600 shadow-lg"
-                      : "bg-blue-500 text-white hover:bg-blue-600"
-                  }`}
-                >
-                  <Icon className="w-4 h-4" />
-                  {tab.label}
-                </button>
-              );
-            })}
-          </div>
+          <h1 className="text-2xl font-bold text-white">Equipment Calibration</h1>
         </div>
 
-        {/* Tab Content */}
+        {/* Equipment Content */}
         <motion.div
-          key={activeTab}
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.2 }}
           className="bg-white rounded-lg shadow-lg p-4"
         >
-          {activeTab === "calibration" && (
-            <div>
-              <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                <HiCog className="w-6 h-6 text-blue-600" />
-                Equipment Calibration
-              </h2>
-              <div className="space-y-4">
-                {equipment.length === 0 ? (
-                  <div className="text-center py-8">
-                    <HiCog className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                    <p className="text-gray-500 text-lg mb-2">No Equipment Found</p>
-                    <p className="text-gray-400 text-sm">Add your first piece of equipment to get started</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {equipment.map((item) => {
-                      // Calculate calibration status
-                      const getCalibrationStatus = () => {
-                        if (!item.calibrationReTestDate) {
-                          return { 
-                            status: 'unknown', 
-                            icon: <HiExclamationCircle className="w-3 h-3 text-white" />, 
-                            label: 'No Date Set', 
-                            color: 'bg-gray-500' 
-                          };
-                        }
-                        
-                        const reTestDate = new Date(item.calibrationReTestDate);
-                        const today = new Date();
-                        const oneMonthFromNow = new Date();
-                        oneMonthFromNow.setMonth(oneMonthFromNow.getMonth() + 1);
-                        
-                        if (reTestDate < today) {
-                          return { 
-                            status: 'overdue', 
-                            icon: <HiX className="w-3 h-3 text-white" />, 
-                            label: 'Overdue', 
-                            color: 'bg-red-500' 
-                          };
-                        } else if (reTestDate <= oneMonthFromNow) {
-                          return { 
-                            status: 'due-soon', 
-                            icon: <HiExclamationCircle className="w-3 h-3 text-white" />, 
-                            label: 'Due Soon', 
-                            color: 'bg-orange-500' 
-                          };
-                        } else {
-                          return { 
-                            status: 'compliant', 
-                            icon: <HiCheck className="w-3 h-3 text-white" />, 
-                            label: 'In Compliance', 
-                            color: 'bg-green-500' 
-                          };
-                        }
-                      };
+          <div>
+            <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+              <HiCog className="w-6 h-6 text-blue-600" />
+              Equipment Calibration
+            </h2>
+            <div className="space-y-4">
+              {equipment.length === 0 ? (
+                <div className="text-center py-8">
+                  <HiCog className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                  <p className="text-gray-500 text-lg mb-2">No Equipment Found</p>
+                  <p className="text-gray-400 text-sm">Add your first piece of equipment to get started</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {equipment.map((item) => {
+                    // Calculate calibration status
+                    const getCalibrationStatus = () => {
+                      if (!item.calibrationReTestDate) {
+                        return { 
+                          status: 'unknown', 
+                          icon: <HiExclamationCircle className="w-3 h-3 text-white" />, 
+                          label: 'No Date Set', 
+                          color: 'bg-gray-500' 
+                        };
+                      }
                       
-                      const status = getCalibrationStatus();
+                      const reTestDate = new Date(item.calibrationReTestDate);
+                      const today = new Date();
+                      const oneMonthFromNow = new Date();
+                      oneMonthFromNow.setMonth(oneMonthFromNow.getMonth() + 1);
                       
-                      return (
-                        <div key={item.id} className="border border-gray-200 rounded-lg p-3 hover:shadow-md transition-shadow relative">
-                          {/* Delete Button */}
-                          <button
-                            onClick={() => handleDeleteEquipment(item)}
-                            className="absolute top-2 right-2 text-gray-400 hover:text-red-500 transition-colors p-1"
-                            title="Delete Equipment"
-                          >
-                            <HiX className="w-4 h-4" />
-                          </button>
-                          
+                      if (reTestDate < today) {
+                        return { 
+                          status: 'overdue', 
+                          icon: <HiX className="w-3 h-3 text-white" />, 
+                          label: 'Overdue', 
+                          color: 'bg-red-500' 
+                        };
+                      } else if (reTestDate <= oneMonthFromNow) {
+                        return { 
+                          status: 'due-soon', 
+                          icon: <HiExclamationCircle className="w-3 h-3 text-white" />, 
+                          label: 'Due Soon', 
+                          color: 'bg-orange-500' 
+                        };
+                      } else {
+                        return { 
+                          status: 'compliant', 
+                          icon: <HiCheck className="w-3 h-3 text-white" />, 
+                          label: 'In Compliance', 
+                          color: 'bg-green-500' 
+                        };
+                      }
+                    };
+                    
+                    const status = getCalibrationStatus();
+                    
+                    return (
+                      <div key={item.id} className="border border-gray-200 rounded-lg p-3 hover:shadow-md transition-shadow relative flex flex-col min-h-[200px]">
+                        {/* Delete Button */}
+                        <button
+                          onClick={() => handleDeleteEquipment(item)}
+                          className="absolute top-2 right-2 text-gray-400 hover:text-red-500 transition-colors p-1"
+                          title="Delete Equipment"
+                        >
+                          <HiX className="w-4 h-4" />
+                        </button>
+                        
+                        {/* Content Area */}
+                        <div className="flex-1">
                           <div className="flex items-center justify-between mb-2">
                             <h3 className="font-medium text-gray-800">{item.equipmentType}</h3>
                           </div>
@@ -516,192 +439,43 @@ export default function CalibrationLicensesPage() {
                           {item.notes && (
                             <p className="text-sm text-gray-500 mb-2 italic">&ldquo;{item.notes}&rdquo;</p>
                           )}
-                          <div className="mt-3 pt-3 border-t border-gray-100">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm text-gray-600">Status:</span>
-                              <div className="flex items-center gap-1">
-                                <div className={`w-4 h-4 rounded-full flex items-center justify-center ${status.color}`}>
-                                  {status.icon}
-                                </div>
-                                <span className={`text-sm font-medium ${
-                                  status.status === 'compliant' ? 'text-green-500' : 
-                                  status.status === 'overdue' ? 'text-red-600' :
-                                  status.status === 'due-soon' ? 'text-orange-600' :
-                                  'text-gray-600'
-                                }`}>{status.label}</span>
+                        </div>
+                        
+                        {/* Status Section - Always at bottom */}
+                        <div className="mt-auto pt-3 border-t border-gray-100">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-gray-600">Status:</span>
+                            <div className="flex items-center gap-1">
+                              <div className={`w-4 h-4 rounded-full flex items-center justify-center ${status.color}`}>
+                                {status.icon}
                               </div>
+                              <span className={`text-sm font-medium ${
+                                status.status === 'compliant' ? 'text-green-500' : 
+                                status.status === 'overdue' ? 'text-red-600' :
+                                status.status === 'due-soon' ? 'text-orange-600' :
+                                'text-gray-600'
+                              }`}>{status.label}</span>
                             </div>
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
-                
-                <div className="mt-6 pt-6 border-t border-gray-200">
-                  <button 
-                    onClick={() => setShowEquipmentModal(true)}
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
-                  >
-                    Add New Equipment
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === "licenses" && (
-            <div>
-              <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                <HiUserGroup className="w-6 h-6 text-blue-600" />
-                Personnel Profiles
-              </h2>
-              
-              {/* Simple Personnel Card */}
-              <div className="bg-white rounded-lg shadow-md p-4 border border-gray-200">
-                <div className="flex items-center justify-between w-full">
-                  {/* Photo and Name Group */}
-                  <div className="flex items-center gap-3">
-                    {user?.photoURL ? (
-                      <div className="relative">
-                        <Image
-                          src={user.photoURL}
-                          alt="Profile"
-                          width={48}
-                          height={48}
-                          className="rounded-full border-2 border-blue-200"
-                        />
                       </div>
-                    ) : (
-                      <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-                        <HiUserGroup className="w-6 h-6 text-blue-600" />
-                      </div>
-                    )}
-                    <h3 className="text-base font-semibold text-gray-800">{displayName}</h3>
-                  </div>
-                  
-                  {/* All other data spread across the remaining space */}
-                  <div className="flex items-center justify-between flex-1 ml-8">
-                    <span className="text-base font-medium text-blue-600">{company}</span>
-                    <span className="text-base font-medium text-gray-600">{position || "Position not specified"}</span>
-                    <span className="text-base text-gray-600">Employee ID: <span className="font-medium text-gray-900">{userProfile?.employeeId || "N/A"}</span></span>
-                    <span className="text-base text-gray-600">Licenses: <span className="font-semibold text-gray-900">{licenses.length}</span>
-                      {licenses.length > 0 && (
-                        <>
-                          {allValid ? (
-                            <HiCheckCircle className="w-4 h-4 text-green-500 inline ml-1" />
-                          ) : (
-                            <HiExclamationCircle className="w-4 h-4 text-red-500 inline ml-1" />
-                          )}
-                          <span className={`text-xs font-medium ml-1 ${
-                            allValid ? 'text-green-600' : 'text-red-600'
-                          }`}>
-                            {allValid ? 'Valid' : 'Expired'}
-                          </span>
-                        </>
-                      )}
-                    </span>
-                    <span className="text-base text-gray-600">Certifications: <span className="font-semibold text-gray-900">{certifications.length}</span>
-                      {certifications.length > 0 && (
-                        <>
-                          {allValid ? (
-                            <HiCheckCircle className="w-4 h-4 text-green-500 inline ml-1" />
-                          ) : (
-                            <HiExclamationCircle className="w-4 h-4 text-red-500 inline ml-1" />
-                          )}
-                          <span className={`text-xs font-medium ml-1 ${
-                            allValid ? 'text-green-600' : 'text-red-600'
-                          }`}>
-                            {allValid ? 'Valid' : 'Expired'}
-                          </span>
-                        </>
-                      )}
-                    </span>
-                  </div>
+                    );
+                  })}
                 </div>
-              </div>
+              )}
               
               <div className="mt-6 pt-6 border-t border-gray-200">
                 <button 
-                  onClick={() => setShowInviteModal(true)}
+                  onClick={() => setShowEquipmentModal(true)}
                   className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
                 >
-                  Add Personnel
+                  Add New Equipment
                 </button>
               </div>
             </div>
-          )}
+          </div>
         </motion.div>
       </div>
-
-      {/* Invitation Modal */}
-      {showInviteModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-800">Invite Personnel</h3>
-              <button
-                onClick={() => setShowInviteModal(false)}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                <HiX className="w-5 h-5" />
-              </button>
-            </div>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Full Name
-                </label>
-                <input
-                  type="text"
-                  name="name"
-                  value={inviteForm.name}
-                  onChange={handleInviteFormChange}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
-                  placeholder="Enter full name"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Email Address
-                </label>
-                <input
-                  type="email"
-                  name="email"
-                  value={inviteForm.email}
-                  onChange={handleInviteFormChange}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
-                  placeholder="Enter email address"
-                />
-              </div>
-            </div>
-            
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={() => setShowInviteModal(false)}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                disabled={isSendingInvite}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSendInvitation}
-                disabled={isSendingInvite || !inviteForm.name.trim() || !inviteForm.email.trim()}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSendingInvite ? "Sending..." : "Send Invitation"}
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
 
       {/* Equipment Modal */}
       {showEquipmentModal && (
@@ -727,24 +501,13 @@ export default function CalibrationLicensesPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Equipment Type *
                 </label>
-                <select
-                  name="equipmentType"
+                <Combobox
                   value={equipmentForm.equipmentType}
-                  onChange={handleEquipmentFormChange}
-                  className={`w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 text-gray-900 ${
-                    validationErrors.equipmentType ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-blue-500'
-                  }`}
-                >
-                  <option value="">Select Equipment Type</option>
-                  <option value="Torque Wrench">Torque Wrench</option>
-                  <option value="Multimeter">Multimeter</option>
-                  <option value="Insulation Resistance Tester">Insulation Resistance Tester</option>
-                  <option value="Ohm Meter">Ohm Meter</option>
-                  <option value="Multifunction Meter">Multifunction Meter</option>
-                </select>
-                {validationErrors.equipmentType && (
-                  <p className="text-red-500 text-xs mt-1">{validationErrors.equipmentType}</p>
-                )}
+                  onChange={handleEquipmentTypeChange}
+                  options={equipmentTypeOptions}
+                  placeholder="Select or type equipment type..."
+                  error={validationErrors.equipmentType}
+                />
               </div>
               
               <div>
@@ -914,4 +677,4 @@ export default function CalibrationLicensesPage() {
       )}
     </motion.div>
   );
-} 
+}

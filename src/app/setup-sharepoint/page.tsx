@@ -38,7 +38,7 @@ export default function SharePointSetupPage() {
     {
       id: 'azure-app',
       title: 'Create Azure App Registration',
-      description: 'Set up an Azure app to access SharePoint',
+      description: 'Set up a multi-tenant Azure app for OAuth2 authentication',
       completed: false,
       required: true,
       icon: HiCog
@@ -46,34 +46,26 @@ export default function SharePointSetupPage() {
     {
       id: 'permissions',
       title: 'Configure Permissions',
-      description: 'Grant necessary permissions to your app',
+      description: 'Grant necessary permissions for multi-tenant access',
       completed: false,
       required: true,
       icon: HiShieldCheck
     },
     {
       id: 'credentials',
-      title: 'Get Credentials',
-      description: 'Copy your client ID and secret',
+      title: 'Get Application Credentials',
+      description: 'Copy your client ID and client secret',
       completed: false,
       required: true,
       icon: HiKey
     },
     {
       id: 'site-info',
-      title: 'Find SharePoint Site',
-      description: 'Locate your SharePoint site and drive',
+      title: 'Test Authentication',
+      description: 'Verify OAuth2 flow works with your organization',
       completed: false,
       required: true,
       icon: HiGlobe
-    },
-    {
-      id: 'test-connection',
-      title: 'Test Connection',
-      description: 'Verify everything is working',
-      completed: false,
-      required: true,
-      icon: HiCloud
     }
   ];
 
@@ -188,12 +180,12 @@ export default function SharePointSetupPage() {
         <div className="space-y-8">
           <div className="bg-white rounded-lg shadow-lg p-4 space-y-6">
             <div className="bg-blue-50 p-6 rounded-lg border border-blue-200">
-              <h4 className="font-semibold text-blue-900 mb-3 text-center">What is Azure and why do we need it?</h4>
-              <p className="text-blue-800 text-sm leading-relaxed text-center">
-                <strong>Azure</strong> is Microsoft's cloud platform that provides the security infrastructure needed to access SharePoint files. 
-                Think of it as a secure "passport" that gives thinkcompl.ai permission to read and write your documents 
-                without exposing your personal login credentials. This keeps your data safe while enabling powerful 
-                AI-powered document management features.
+              <h4 className="font-semibold text-blue-900 mb-3 text-center">Multi-Tenant OAuth2 Authentication</h4>
+                              <p className="text-blue-800 text-sm leading-relaxed text-center">
+                This setup uses <strong>OAuth2 interactive authentication</strong> which allows users from any organization to sign in 
+                with their own Microsoft accounts. No admin pre-configuration is needed - users simply authenticate 
+                through Microsoft&apos;s secure login when they first access SharePoint features. This provides enterprise-grade 
+                security while maintaining ease of use across multiple organizations.
               </p>
             </div>
 
@@ -210,8 +202,8 @@ export default function SharePointSetupPage() {
         return (
           <div className="space-y-4">
             <div className="text-center">
-              <h2 className="text-2xl font-bold text-white mb-1">Create Azure App Registration</h2>
-              <p className="text-blue-100 text-lg">Set up an Azure app to access SharePoint</p>
+              <h2 className="text-2xl font-bold text-white mb-1">Create Multi-Tenant Azure App</h2>
+              <p className="text-blue-100 text-lg">Set up an Azure app that works across all organizations</p>
             </div>
 
             <div className="bg-white rounded-lg shadow-lg p-4 space-y-3">
@@ -224,27 +216,27 @@ export default function SharePointSetupPage() {
                 </div>
                 <div className="flex items-start space-x-3">
                   <div className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0">2</div>
-                  <p className="text-gray-700">Search for <span className="font-bold">"App registrations"</span> in the search bar</p>
+                  <p className="text-gray-700">Search for <span className="font-bold">&quot;App registrations&quot;</span> in the search bar</p>
                 </div>
                 <div className="flex items-start space-x-3">
                   <div className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0">3</div>
-                  <p className="text-gray-700">Click <span className="font-bold">"New registration"</span> in the top right</p>
+                  <p className="text-gray-700">Click <span className="font-bold">&quot;New registration&quot;</span> in the top right</p>
                 </div>
                 <div className="flex items-start space-x-3">
                   <div className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0">4</div>
-                  <p className="text-gray-700">Name: Copy and paste <span className="font-bold">thinkcompl.ai Integration</span> or write something similar</p>
+                  <p className="text-gray-700">Name: Copy and paste <span className="font-bold">thinkcompl.ai Multi-Tenant</span> or write something similar</p>
                 </div>
                 <div className="flex items-start space-x-3">
                   <div className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0">5</div>
-                  <p className="text-gray-700">Account types: Select <span className="font-bold">"Accounts in this organizational directory only"</span> (should be selected by default)</p>
+                  <p className="text-gray-700">Account types: Select <span className="font-bold">&quot;Accounts in any organizational directory (Any Azure AD directory - Multitenant)&quot;</span></p>
                 </div>
                 <div className="flex items-start space-x-3">
                   <div className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0">6</div>
-                  <p className="text-gray-700">Redirect URI: Select <span className="font-bold">Web</span> and paste <span className="font-bold">https://thinkcompl.ai</span></p>
+                  <p className="text-gray-700">Redirect URI: Select <span className="font-bold">Web</span> and paste <span className="font-bold">https://thinkcompl.ai/api/sharepoint/auth/callback</span></p>
                 </div>
                 <div className="flex items-start space-x-3">
                   <div className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0">7</div>
-                  <p className="text-gray-700">Click <span className="font-bold">"Register"</span></p>
+                  <p className="text-gray-700">Click <span className="font-bold">&quot;Register&quot;</span></p>
                 </div>
               </div>
 
@@ -257,7 +249,7 @@ export default function SharePointSetupPage() {
                   className="w-5 h-5 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
                 />
                 <label htmlFor="azure-app-complete" className="text-sm font-medium text-gray-900">
-                  I've completed the Azure app registration
+                  I&apos;ve completed the Azure app registration
                 </label>
               </div>
             </div>
@@ -268,8 +260,8 @@ export default function SharePointSetupPage() {
         return (
           <div className="space-y-4">
             <div className="text-center">
-              <h2 className="text-2xl font-bold text-white mb-1">Configure Permissions</h2>
-              <p className="text-blue-100 text-lg">Grant necessary permissions to your app</p>
+              <h2 className="text-2xl font-bold text-white mb-1">Configure Multi-Tenant Permissions</h2>
+              <p className="text-blue-100 text-lg">Set up permissions for cross-organization access</p>
             </div>
 
             <div className="bg-white rounded-lg shadow-lg p-4 space-y-3">
@@ -279,31 +271,31 @@ export default function SharePointSetupPage() {
                 <div className="flex items-start space-x-3">
                   <div className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm font-bold">1</div>
                   <div>
-                    <p className="font-medium text-gray-900">Navigate back into <span className="font-bold">"App registrations"</span></p>
+                    <p className="font-medium text-gray-900">Navigate back into <span className="font-bold">&quot;App registrations&quot;</span></p>
                   </div>
                 </div>
                 <div className="flex items-start space-x-3">
                   <div className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm font-bold">2</div>
                   <div>
-                    <p className="font-medium text-gray-900">Click <span className="font-bold">"All applications"</span> and select the app you just created</p>
+                    <p className="font-medium text-gray-900">Click <span className="font-bold">&quot;All applications&quot;</span> and select the app you just created</p>
                   </div>
                 </div>
                 <div className="flex items-start space-x-3">
                   <div className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm font-bold">3</div>
                   <div>
-                    <p className="font-medium text-gray-900">In the left menu, click <span className="font-bold">"Manage"</span> then <span className="font-bold">"API permissions"</span></p>
+                    <p className="font-medium text-gray-900">In the left menu, click <span className="font-bold">&quot;Manage&quot;</span> then <span className="font-bold">&quot;API permissions&quot;</span></p>
                   </div>
                 </div>
                 <div className="flex items-start space-x-3">
                   <div className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm font-bold">4</div>
                   <div>
-                    <p className="font-medium text-gray-900">Click <span className="font-bold">"Microsoft Graph"</span> (this opens a side panel)</p>
+                    <p className="font-medium text-gray-900">Click <span className="font-bold">&quot;Microsoft Graph&quot;</span> (this opens a side panel)</p>
                   </div>
                 </div>
                 <div className="flex items-start space-x-3">
                   <div className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm font-bold">5</div>
                   <div>
-                    <p className="font-medium text-gray-900">Select <span className="font-bold">"Application permissions"</span></p>
+                    <p className="font-medium text-gray-900">Select <span className="font-bold">&quot;Delegated permissions&quot;</span> (not Application permissions)</p>
                   </div>
                 </div>
                 <div className="flex items-start space-x-3">
@@ -315,27 +307,19 @@ export default function SharePointSetupPage() {
                       <li>• <span className="font-bold">Sites.ReadWrite.All</span></li>
                       <li>• <span className="font-bold">Files.Read.All</span></li>
                       <li>• <span className="font-bold">Files.ReadWrite.All</span></li>
+                      <li>• <span className="font-bold">User.Read</span></li>
                     </ul>
                   </div>
                 </div>
                 <div className="flex items-start space-x-3">
                   <div className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm font-bold">7</div>
                   <div>
-                    <p className="font-medium text-gray-900">Click <span className="font-bold">"Update permissions"</span></p>
+                    <p className="font-medium text-gray-900">Click <span className="font-bold">&quot;Add permissions&quot;</span></p>
                   </div>
                 </div>
               </div>
                 
-              <div className="p-3 bg-blue-50 rounded-lg">
-                <div className="text-sm text-blue-700">
-                  <p className="mb-2">After adding the permissions above, you must grant admin consent:</p>
-                  <ul className="space-y-1">
-                    <li>• Click <strong>"✓ Grant admin consent for thinkcompl.ai"</strong></li>
-                    <li>• Confirm the consent dialog that appears</li>
-                    <li>• You should see green checkmarks next to all permissions <span className="inline-flex items-center ml-1"><div className="w-4 h-4 bg-green-500 rounded-full flex items-center justify-center"><span className="text-white text-xs">✓</span></div></span></li>
-                  </ul>
-                </div>
-              </div>
+
 
               <div className="flex items-center space-x-3 p-3 bg-blue-50 rounded-lg">
                 <input
@@ -346,7 +330,7 @@ export default function SharePointSetupPage() {
                   className="w-5 h-5 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
                 />
                 <label htmlFor="permissions-complete" className="text-sm font-medium text-gray-900">
-                  I've configured all permissions and granted admin consent
+                  I&apos;ve configured all permissions
                 </label>
               </div>
             </div>
@@ -357,13 +341,13 @@ export default function SharePointSetupPage() {
         return (
           <div className="space-y-4">
             <div className="text-center">
-              <h2 className="text-2xl font-bold text-white mb-1">Get Credentials</h2>
-              <p className="text-blue-100 text-lg">Copy your client ID and secret</p>
+              <h2 className="text-2xl font-bold text-white mb-1">Get Application Credentials</h2>
+              <p className="text-blue-100 text-lg">Copy your client ID and client secret</p>
             </div>
 
             <div className="bg-white rounded-lg shadow-lg p-4 space-y-3">
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-3">
                 <div className="space-y-1">
                   <label className="block text-sm font-medium text-gray-700">Application (client) ID</label>
                   <input
@@ -374,61 +358,59 @@ export default function SharePointSetupPage() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-black"
                   />
                 </div>
+
                 <div className="space-y-1">
-                  <label className="block text-sm font-medium text-gray-700">Directory (tenant) ID</label>
-                  <input
-                    type="text"
-                    value={formData.tenantId}
-                    onChange={(e) => handleInputChange('tenantId', e.target.value)}
-                    placeholder="Enter your Directory (tenant) ID"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-black"
-                  />
-                </div>
-                <div className="space-y-1 md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700">Client Secret Value</label>
+                  <label className="block text-sm font-medium text-gray-700">Client Secret</label>
                   <div className="relative">
                     <input
                       type={showClientSecret ? "text" : "password"}
                       value={formData.clientSecret}
                       onChange={(e) => handleInputChange('clientSecret', e.target.value)}
-                      placeholder="Enter your Client Secret Value"
+                      placeholder="Enter your client secret"
                       className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-black"
                     />
                     <button
                       type="button"
                       onClick={() => setShowClientSecret(!showClientSecret)}
-                      className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700 text-sm"
+                      className="absolute inset-y-0 right-0 pr-3 flex items-center"
                     >
-                      {showClientSecret ? "Hide" : "Show"}
+                      {showClientSecret ? (
+                        <HiX className="h-5 w-5 text-gray-400" />
+                      ) : (
+                        <HiKey className="h-5 w-5 text-gray-400" />
+                      )}
                     </button>
                   </div>
                 </div>
               </div>
 
-              <div className="bg-blue-50 p-3 rounded-lg">
-                <h4 className="font-semibold text-blue-900 mb-1">Where to find these values:</h4>
-                <ul className="text-sm text-blue-700 space-y-1">
-                  <li>• <strong>Application (client) ID:</strong> Found in your app registration → Overview → Copy the "Application (client) ID"</li>
-                  <li>• <strong>Object ID:</strong> Found in your app registration → Overview → Copy the "Object ID"</li>
-                  <li>• <strong>Client Secret Value:</strong> Found in your app registration → Manage → Certificates & secrets → Copy the "Value" (not Secret ID)</li>
-                </ul>
-                
-
-                
-                <h4 className="font-semibold text-blue-900 mb-2 mt-4">To create your Client Secret:</h4>
-                <div className="space-y-2">
-                  <div className="flex items-start space-x-3">
-                    <div className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0">1</div>
-                    <p className="text-blue-800">Click <span className="font-bold">"New client secret"</span></p>
+              <div className="space-y-2">
+                <div className="flex items-start space-x-3">
+                  <div className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0">1</div>
+                  <div>
+                    <p className="text-gray-700">Go to your app registration → <span className="font-bold">Overview</span> → Copy the &quot;Application (client) ID&quot;</p>
                   </div>
-                  <div className="flex items-start space-x-3">
-                    <div className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0">2</div>
-                    <p className="text-blue-800">Add a description (e.g., "thinkcompl.ai integration") and choose expiration (12-24 months)</p>
+                </div>
+                <div className="flex items-start space-x-3">
+                  <div className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0">2</div>
+                  <div>
+                    <p className="text-gray-700">Go to <span className="font-bold">Certificates & secrets</span> → Click <span className="font-bold">&quot;+ New client secret&quot;</span></p>
                   </div>
-                  <div className="flex items-start space-x-3">
-                    <div className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0">3</div>
-                    <p className="text-blue-800">Click <span className="font-bold">"Add"</span> and <span className="font-bold">copy the secret value immediately</span> (you won't see it again)</p>
+                </div>
+                <div className="flex items-start space-x-3">
+                  <div className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0">3</div>
+                  <div>
+                    <p className="text-gray-700">Add description: <span className="font-bold">&quot;thinkcompl.ai OAuth2 Token Exchange&quot;</span></p>
                   </div>
+                </div>
+                <div className="flex items-start space-x-3">
+                  <div className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0">4</div>
+                  <div>
+                    <p className="text-gray-700">Set expiration to <span className="font-bold">12 months</span></p>
+                  </div>
+                </div>
+                <div className="mt-3 p-3 bg-red-50 rounded-lg border border-red-200">
+                  <p className="text-red-700 text-sm font-medium">Copy the secret value immediately - it&apos;s only visible once!</p>
                 </div>
               </div>
 
@@ -441,191 +423,73 @@ export default function SharePointSetupPage() {
         return (
           <div className="space-y-4">
             <div className="text-center">
-              <h2 className="text-2xl font-bold text-white mb-1">Find SharePoint Site</h2>
-              <p className="text-blue-100 text-lg">Locate your SharePoint site and drive</p>
+              <h2 className="text-2xl font-bold text-white mb-1">Test OAuth2 Authentication</h2>
+              <p className="text-blue-100 text-lg">Verify the interactive authentication flow works</p>
             </div>
 
             <div className="bg-white rounded-lg shadow-lg p-4 space-y-3">
 
               <div className="space-y-3">
-                <div className="space-y-1">
-                  <label className="block text-sm font-medium text-gray-700">SharePoint Site URL</label>
-                  <input
-                    type="url"
-                    value={formData.siteUrl}
-                    onChange={(e) => handleInputChange('siteUrl', e.target.value)}
-                    placeholder="https://yourcompany.sharepoint.com"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-black"
-                  />
+                <div className="bg-blue-50 p-4 rounded-lg">
+                  <h4 className="font-semibold text-blue-900 mb-2">How OAuth2 Authentication Works:</h4>
+                  <ul className="text-sm text-blue-700 space-y-1">
+                    <li>• Users click &quot;Connect SharePoint&quot; on the dashboard</li>
+                    <li>• They&apos;re redirected to Microsoft&apos;s secure login page</li>
+                    <li>• After signing in, they grant permissions to thinkcompl.ai</li>
+                    <li>• They&apos;re redirected back with access tokens</li>
+                    <li>• The app can now access their SharePoint files</li>
+                  </ul>
                 </div>
 
                 <div className="flex justify-center">
                   <Button
                     onClick={async () => {
-                      if (formData.siteUrl) {
-                        try {
-                          const response = await fetch('/api/sharepoint/discover-site', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ siteUrl: formData.siteUrl })
-                          });
-                          const data = await response.json();
-                          if (data.success) {
-                            handleInputChange('siteId', data.siteId);
-                            handleInputChange('driveId', data.driveId);
-                            // Use discovered tenant ID if available
-                            if (data.discoveredTenantId) {
-                              handleInputChange('tenantId', data.discoveredTenantId);
-                            }
-                            setDiscoverySuccess(true);
-                          } else {
-                            console.error('Site discovery failed:', data.error);
-                            setDiscoverySuccess(false);
-                            let errorMessage = data.error;
-                            
-                            if (data.examples) {
-                              errorMessage += `\n\nValid URL examples:\n${data.examples.map((ex: string) => `• ${ex}`).join('\n')}`;
-                            }
-                            
-                            if (data.missingVariables) {
-                              errorMessage += `\n\nMissing environment variables: ${data.missingVariables.join(', ')}\n\nPlease check the AZURE_SETUP_GUIDE.md file for setup instructions.`;
-                            }
-                            
-                            alert(`Site discovery failed: ${errorMessage}`);
-                          }
-                        } catch (error) {
-                          console.error('Site discovery failed:', error);
-                          alert('Site discovery failed. Please check your site URL and ensure your Azure app registration is properly configured. See AZURE_SETUP_GUIDE.md for details.');
+                      console.log('Test OAuth2 Flow clicked');
+                      console.log('formData.clientId:', formData.clientId);
+                      try {
+                        // Test the OAuth2 flow by initiating authentication
+                        console.log('Fetching /api/sharepoint/auth...');
+                        const response = await fetch('/api/sharepoint/auth');
+                        console.log('Response received:', response);
+                        const data = await response.json();
+                        console.log('Response data:', data);
+                        
+                        if (data.success) {
+                          // Redirect to Microsoft's OAuth2 authorization page
+                          console.log('Redirecting to:', data.authUrl);
+                          window.location.href = data.authUrl;
+                        } else {
+                          alert(`Authentication setup failed: ${data.error}`);
                         }
+                      } catch (error) {
+                        console.error('Authentication test failed:', error);
+                        alert('Authentication test failed. Please ensure your Azure app registration is properly configured.');
                       }
                     }}
                     className="w-fit"
-                    disabled={!formData.siteUrl}
+                    disabled={!formData.clientId}
                   >
-                    Discover Site & Drive
+                    Test OAuth2 Flow
                   </Button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label className="block text-sm font-medium text-gray-700 flex items-center gap-2">
-                      Site ID (Auto-discovered)
-                      {discoverySuccess && formData.siteId && (
-                        <HiCheck className="w-4 h-4 text-green-500" />
-                      )}
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.siteId}
-                      onChange={(e) => handleInputChange('siteId', e.target.value)}
-                      placeholder="Will be auto-filled"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-gray-50 text-black"
-                      readOnly
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="block text-sm font-medium text-gray-700 flex items-center gap-2">
-                      Drive ID (Auto-discovered)
-                      {discoverySuccess && formData.driveId && (
-                        <HiCheck className="w-4 h-4 text-green-500" />
-                      )}
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.driveId}
-                      onChange={(e) => handleInputChange('driveId', e.target.value)}
-                      placeholder="Will be auto-filled"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-gray-50 text-black"
-                      readOnly
-                    />
+                <div className="bg-green-50 p-3 rounded-lg">
+                  <div className="flex items-center space-x-3">
+                    <HiCheck className="w-5 h-5 text-green-500" />
+                    <div>
+                      <h4 className="font-semibold text-green-900">No Pre-configuration Needed</h4>
+                      <p className="text-green-700 text-sm">
+                        Users from any organization can authenticate without admin setup. Each user grants their own permissions when they first access SharePoint features.
+                      </p>
+                    </div>
                   </div>
                 </div>
-
-
               </div>
             </div>
           </div>
         );
 
-      case 'test-connection':
-        return (
-          <div className="space-y-4">
-            <div className="text-center">
-              <h2 className="text-2xl font-bold text-white mb-1">Test Connection</h2>
-              <p className="text-blue-100 text-lg">Verify everything is working</p>
-            </div>
 
-            <div className="bg-white rounded-lg shadow-lg p-4 space-y-3">
-              <div className="flex justify-center">
-                <Button
-                  onClick={handleTestConnection}
-                  disabled={isLoading || saveSuccess}
-                  className="px-8 py-2 text-sm"
-                >
-                  {isLoading ? 'Testing...' : saveSuccess ? 'Configuration Saved' : 'Test Connection'}
-                </Button>
-              </div>
-
-              {Object.keys(testResults).length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="font-medium text-gray-900">Test Results:</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                    {Object.entries(testResults).map(([test, passed]) => (
-                      <div key={test} className={`flex items-center space-x-3 p-2 rounded-lg ${passed ? 'bg-green-50' : 'bg-gray-50'}`}>
-                        {passed ? (
-                          <HiCheck className="w-5 h-5 text-green-500" />
-                        ) : (
-                          <HiX className="w-5 h-5 text-red-500" />
-                        )}
-                        <span className="text-sm font-medium text-black capitalize">{test}: {passed ? 'Passed' : 'Failed'}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {Object.keys(testResults).length > 0 && Object.values(testResults).every(Boolean) && !saveSuccess && (
-                <div className="bg-green-50 p-3 rounded-lg border border-green-200">
-                  <div className="flex items-center space-x-3">
-                    <HiCheck className="w-6 h-6 text-green-500" />
-                    <div>
-                      <h4 className="font-semibold text-green-900">✅ All tests passed!</h4>
-                      <p className="text-green-700 mt-1">
-                        Your SharePoint connection is working correctly. You can now save the configuration.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {Object.keys(testResults).length > 0 && Object.values(testResults).every(Boolean) && !saveSuccess && (
-                <div className="flex justify-center">
-                  <Button
-                    onClick={handleSaveConfiguration}
-                    className="px-8 py-2 text-sm"
-                    disabled={isLoading}
-                  >
-                    {isLoading ? 'Saving...' : 'Save Configuration'}
-                  </Button>
-                </div>
-              )}
-
-              {saveSuccess && (
-                <div className="bg-green-50 p-3 rounded-lg border border-green-200">
-                  <div className="flex items-center space-x-3">
-                    <HiCheck className="w-6 h-6 text-green-500" />
-                    <div>
-                      <h4 className="font-semibold text-green-900">Configuration Saved!</h4>
-                      <p className="text-green-700 mt-1">
-                        Your SharePoint configuration has been saved successfully. You can now finish the setup.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        );
 
       default:
         return null;
@@ -726,7 +590,31 @@ export default function SharePointSetupPage() {
               Previous
             </Button>
             <Button
-              onClick={() => {
+              onClick={async () => {
+                // If we're on step 3 (credentials) and moving to step 4, save both client ID and client secret
+                if (currentStep === 3 && formData.clientId && formData.clientSecret) {
+                  try {
+                    const response = await fetch('/api/sharepoint/update-env', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ 
+                        clientId: formData.clientId,
+                        clientSecret: formData.clientSecret 
+                      })
+                    });
+                    
+                    const data = await response.json();
+                    if (!data.success) {
+                      alert('Failed to save credentials to environment. Please try again.');
+                      return;
+                    }
+                  } catch (error) {
+                    console.error('Failed to save credentials:', error);
+                    alert('Failed to save credentials to environment. Please try again.');
+                    return;
+                  }
+                }
+                
                 if (currentStep === steps.length) {
                   // Navigate to dashboard when finishing
                   window.location.href = '/dashboard';
@@ -735,10 +623,9 @@ export default function SharePointSetupPage() {
                 }
               }}
               disabled={
-                (currentStep === 3 && (!formData.tenantId || !formData.clientId || !formData.clientSecret)) || 
-                (currentStep === 4 && (!formData.siteUrl || !formData.driveId)) || 
-                (currentStep === 5 && !saveSuccess) ||
-                (currentStep !== 3 && currentStep !== 4 && currentStep !== 5 && currentStep !== 0 && !completedSteps[steps[currentStep - 1].id])
+                (currentStep === 3 && (!formData.clientId || !formData.clientSecret)) || 
+                (currentStep === 4 && !formData.clientId) || 
+                (currentStep !== 3 && currentStep !== 4 && currentStep !== 0 && !completedSteps[steps[currentStep - 1].id])
               }
               className="px-8 py-2"
             >

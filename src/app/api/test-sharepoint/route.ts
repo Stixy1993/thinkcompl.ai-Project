@@ -13,7 +13,7 @@ export async function GET() {
     };
 
     // Test authentication
-    let authTest = { success: false, error: null };
+    let authTest: { success: boolean; error: string | null } = { success: false, error: null };
     
     if (envVars.SHAREPOINT_CLIENT_ID && envVars.SHAREPOINT_CLIENT_SECRET === '***SET***') {
       try {

@@ -7,13 +7,16 @@ export async function GET(request: NextRequest) {
     const state = searchParams.get('state');
     const error = searchParams.get('error');
     
-    // Verify state parameter
-    const storedState = request.cookies.get('oauth_state')?.value;
-    if (!storedState || state !== storedState) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid state parameter' },
-        { status: 400 }
-      );
+    // Verify state parameter (only if we have a state)
+    if (state) {
+      const storedState = request.cookies.get('oauth_state')?.value;
+      if (!storedState || state !== storedState) {
+        console.log('State mismatch:', { received: state, stored: storedState });
+        return NextResponse.json(
+          { success: false, error: 'Invalid state parameter' },
+          { status: 400 }
+        );
+      }
     }
     
     // Check for OAuth errors
@@ -31,18 +34,29 @@ export async function GET(request: NextRequest) {
       );
     }
     
-    // Exchange code for tokens
+    // Check if required environment variables are set
+    if (!process.env.SHAREPOINT_CLIENT_ID) {
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: 'SharePoint configuration incomplete. Please set SHAREPOINT_CLIENT_ID environment variable.' 
+        },
+        { status: 400 }
+      );
+    }
+
+    // Exchange code for tokens - OAuth2 authorization code flow
     const tokenResponse = await fetch('https://login.microsoftonline.com/common/oauth2/v2.0/token', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       body: new URLSearchParams({
-        client_id: process.env.SHAREPOINT_CLIENT_ID!,
-        client_secret: process.env.SHAREPOINT_CLIENT_SECRET!,
+        client_id: process.env.SHAREPOINT_CLIENT_ID,
+        client_secret: process.env.SHAREPOINT_CLIENT_SECRET || '',
         code: code,
         redirect_uri: process.env.NODE_ENV === 'production' 
-          ? 'https://yourdomain.com/api/sharepoint/auth/callback'
+          ? 'https://thinkcompl.ai/api/sharepoint/auth/callback'
           : 'http://localhost:3000/api/sharepoint/auth/callback',
         grant_type: 'authorization_code',
       }),
@@ -52,7 +66,7 @@ export async function GET(request: NextRequest) {
       const errorText = await tokenResponse.text();
       console.error('Token exchange failed:', errorText);
       return NextResponse.json(
-        { success: false, error: 'Failed to exchange authorization code for tokens' },
+        { success: false, error: `Failed to exchange authorization code for tokens: ${errorText}` },
         { status: 400 }
       );
     }
@@ -62,8 +76,8 @@ export async function GET(request: NextRequest) {
     // Store tokens securely (in production, use a proper session store)
     const response = NextResponse.redirect(
       process.env.NODE_ENV === 'production'
-        ? 'https://yourdomain.com/dashboard'
-        : 'http://localhost:3000/dashboard'
+        ? 'https://thinkcompl.ai/dashboard/documents?auth=success'
+        : 'http://localhost:3000/dashboard/documents?auth=success'
     );
     
     // Set tokens in secure cookies

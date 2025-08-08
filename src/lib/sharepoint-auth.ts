@@ -41,7 +41,8 @@ export class SharePointAuth {
       const tokens = await this.getTokensFromCookies();
       if (!tokens?.refresh_token) return false;
 
-      const response = await fetch('https://login.microsoftonline.com/common/oauth2/v2.0/token', {
+      const tenantId = process.env.SHAREPOINT_TENANT_ID;
+      const response = await fetch(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',

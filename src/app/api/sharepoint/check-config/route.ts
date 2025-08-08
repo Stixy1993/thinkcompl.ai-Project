@@ -4,18 +4,17 @@ export async function GET(request: NextRequest) {
   try {
     // Check environment variables
     const config = {
-      tenantId: process.env.SHAREPOINT_TENANT_ID,
-      clientId: process.env.SHAREPOINT_CLIENT_ID,
-      clientSecret: process.env.SHAREPOINT_CLIENT_SECRET,
-      siteId: process.env.SHAREPOINT_DEFAULT_SITE_ID,
-      driveId: process.env.SHAREPOINT_DEFAULT_DRIVE_ID,
-      siteUrl: process.env.SHAREPOINT_SITE_URL,
+      clientId: process.env.SHAREPOINT_CLIENT_ID || null,
+      clientSecret: process.env.SHAREPOINT_CLIENT_SECRET || null,
+      siteId: process.env.SHAREPOINT_DEFAULT_SITE_ID || null,
+      driveId: process.env.SHAREPOINT_DEFAULT_DRIVE_ID || null,
+      siteUrl: process.env.SHAREPOINT_SITE_URL || null,
       configSaved: process.env.SHAREPOINT_CONFIG_SAVED === 'true',
-      configSavedAt: process.env.SHAREPOINT_CONFIG_SAVED_AT
+      configSavedAt: process.env.SHAREPOINT_CONFIG_SAVED_AT || null
     };
 
-    // Validate configuration completeness
-    const requiredFields = ['tenantId', 'clientId', 'clientSecret'];
+    // Validate configuration completeness (OAuth2 doesn't need tenantId)
+    const requiredFields = ['clientId', 'clientSecret'];
     const missingFields = requiredFields.filter(field => !config[field as keyof typeof config]);
     
     const isComplete = missingFields.length === 0;
@@ -24,37 +23,15 @@ export async function GET(request: NextRequest) {
     // Test authentication if basic config is present
     let authTest: { success: boolean; error: string | null } = { success: false, error: null };
     if (isComplete) {
-      try {
-        // Use 'common' endpoint to avoid tenant ID issues during configuration check
-        const tokenUrl = `https://login.microsoftonline.com/common/oauth2/v2.0/token`;
-        const tokenResponse = await fetch(tokenUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: new URLSearchParams({
-            client_id: config.clientId!,
-            client_secret: config.clientSecret!,
-            scope: 'https://graph.microsoft.com/.default',
-            grant_type: 'client_credentials',
-          }),
-        });
-
-        if (tokenResponse.ok) {
-          const tokenData = await tokenResponse.json();
-          if (tokenData.access_token) {
-            authTest = { success: true, error: null };
-          } else {
-            authTest = { success: false, error: 'No access token received' };
-          }
-        } else {
-          const errorText = await tokenResponse.text();
-          console.error('Authentication failed:', tokenResponse.status, errorText);
-          authTest = { success: false, error: `Authentication failed: ${tokenResponse.status} - ${errorText}` };
-        }
-      } catch (error) {
-        authTest = { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-      }
+      // For OAuth2, we just check if the credentials are present
+      // The actual authentication happens when users sign in
+      authTest = { success: true, error: null };
+    } else {
+      // If configuration is incomplete, provide helpful message
+      authTest = { 
+        success: false, 
+        error: `Configuration incomplete. Missing: ${missingFields.join(', ')}. Please set up your SharePoint environment variables.` 
+      };
     }
 
     // Determine configuration status

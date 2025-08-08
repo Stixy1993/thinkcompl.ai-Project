@@ -3,11 +3,14 @@ import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import SignInWithGoogle from "../../components/SignInWithGoogle";
+import SignInWithOutlook from "../../components/SignInWithOutlook";
 import { useState } from "react";
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../../lib/firebase/firebase";
+import { useAuth } from "../../lib/hooks/useAuth";
 
 export default function SignIn() {
+  const { error } = useAuth();
   // Animation timing
   const leftPanelDuration = 0.7;
   const leftPanelDelay = 0.2;
@@ -166,8 +169,18 @@ export default function SignIn() {
               <span className="mx-2 text-gray-400 text-sm">or</span>
               <div className="flex-grow h-px bg-gray-200" />
             </div>
-            <div className="flex justify-center mb-2">
-              <SignInWithGoogle />
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                <SignInWithGoogle />
+                <SignInWithOutlook />
+              </div>
+              {error && (
+                <div className="text-red-500 text-sm text-center">
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 mx-auto max-w-md">
+                    {error}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="text-center mt-4 text-sm text-gray-900">
               Don&apos;t have an account?{' '}

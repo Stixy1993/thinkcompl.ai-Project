@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef, Fragment } from "react";
 import { motion } from "framer-motion";
-import { HiDocument, HiUpload, HiTrash, HiDownload, HiEye, HiPlus, HiX, HiOutlineDocumentText, HiFolder, HiChevronRight, HiHome, HiShare, HiRefresh, HiClock, HiUser, HiClipboard, HiClipboardCopy } from "react-icons/hi";
+import { HiDocument, HiUpload, HiTrash, HiDownload, HiEye, HiPlus, HiX, HiOutlineDocumentText, HiFolder, HiChevronRight, HiHome, HiShare, HiRefresh, HiClock, HiUser, HiClipboard, HiClipboardCopy, HiPencil } from "react-icons/hi";
 import { FaFilePdf, FaFileWord, FaFileExcel, FaFileCsv, FaFileAlt, FaFileImage } from "react-icons/fa";
 import { MdDraw } from "react-icons/md";
 import Button from "@/components/Button";
@@ -20,7 +20,7 @@ interface Document {
 
 type FolderNode = {
   name: string;
-  files: File[];
+  files: any[];
   subfolders: { [name: string]: FolderNode };
 };
 
@@ -43,10 +43,12 @@ function SharePointBreadcrumb({ path, onNavigate, onDragOver, onDragLeave, onDro
         
         return (
           <Fragment key={index}>
-            {/* Chevron separator */}
-            <div className="flex items-center mx-2">
-              <HiChevronRight className="w-4 h-4 text-gray-400" />
-            </div>
+            {/* Chevron separator - only show if not the first segment */}
+            {index > 0 && (
+              <div className="flex items-center mx-2">
+                <HiChevronRight className="w-4 h-4 text-gray-400" />
+              </div>
+            )}
             
             {/* Path segment */}
             <button
@@ -71,7 +73,7 @@ function SharePointBreadcrumb({ path, onNavigate, onDragOver, onDragLeave, onDro
   );
 }
 
-function buildFolderTree(files: File[]): FolderNode {
+function buildFolderTree(files: any[]): FolderNode {
   const root: FolderNode = { name: '', files: [], subfolders: {} };
   files.forEach(file => {
     // @ts-ignore
@@ -113,13 +115,19 @@ export default function DocumentsPage() {
   const [isUploading, setIsUploading] = useState(false);
   // Initialize with some default files so folders don't disappear on refresh
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [displayFiles, setDisplayFiles] = useState<File[]>([]);
+  const [displayFiles, setDisplayFiles] = useState<any[]>([]);
   const [fileNames, setFileNames] = useState<string[]>([]);
   const [showFolderDropWarning, setShowFolderDropWarning] = useState(false);
   const folderWarningTimeout = useRef<NodeJS.Timeout | null>(null);
   const [showNewFolderModal, setShowNewFolderModal] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+  
+  // Rename modal state
+  const [showRenameModal, setShowRenameModal] = useState(false);
+  const [renameItem, setRenameItem] = useState<any>(null);
+  const [newItemName, setNewItemName] = useState('');
+  const [isRenaming, setIsRenaming] = useState(false);
 
   // Folder tree expand/collapse state
   const [expandedFolders, setExpandedFolders] = useState<{ [key: string]: boolean }>({});
@@ -148,41 +156,107 @@ export default function DocumentsPage() {
 
   // Track cut items for visual feedback
   const [cutItems, setCutItems] = useState<Set<string>>(new Set());
+  
+  // Track drag state for visual feedback
+  const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
 
-  // Load files from SharePoint
-  const loadFilesFromSharePoint = async () => {
+  // State for SharePoint site and drive
+  const [sharePointSite, setSharePointSite] = useState<any>(null);
+  const [sharePointDrive, setSharePointDrive] = useState<any>(null);
+
+  // Preview modal state
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [previewFile, setPreviewFile] = useState<any>(null);
+
+  // Ref to track if a request is in progress
+  const loadingRef = useRef(false);
+
+  // Load user's default SharePoint site
+  const loadDefaultSharePointSite = async () => {
     try {
+      console.log('Loading default SharePoint site...');
+      const response = await fetch('/api/sharepoint/documents?action=getDefaultSite');
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Default SharePoint site:', data);
+        setSharePointSite(data);
+        
+        // Automatically load the default drive for this site
+        if (data.id) {
+          await loadDefaultDrive(data.id);
+        }
+      } else {
+        console.error('Failed to load default SharePoint site');
+        setSharePointSite(null);
+      }
+    } catch (error) {
+      console.error('Error loading default SharePoint site:', error);
+      setSharePointSite(null);
+    }
+  };
+
+  // Load the default drive for the site
+  const loadDefaultDrive = async (siteId: string) => {
+    try {
+      console.log('Loading default drive for site:', siteId);
+      const response = await fetch(`/api/sharepoint/documents?action=getDefaultDrive&siteId=${siteId}`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('SharePoint drives:', data);
+        
+        // Get the first drive (usually "Documents" or "Shared Documents")
+        const defaultDrive = data.value?.[0];
+        if (defaultDrive) {
+          console.log('Selected default drive:', defaultDrive);
+          setSharePointDrive(defaultDrive);
+        } else {
+          console.error('No drives found');
+          setSharePointDrive(null);
+        }
+      } else {
+        console.error('Failed to load SharePoint drives');
+        setSharePointDrive(null);
+      }
+    } catch (error) {
+      console.error('Error loading SharePoint drives:', error);
+      setSharePointDrive(null);
+    }
+  };
+
+  // Load files from SharePoint using OAuth2 user tokens
+  const loadFilesFromSharePoint = async () => {
+    if (!sharePointDrive) {
+      console.log('No drive selected');
+      setDisplayFiles([]);
+      return;
+    }
+
+    // Prevent multiple simultaneous calls
+    if (loadingRef.current) {
+      console.log('Already loading files, skipping duplicate call');
+      return;
+    }
+
+    try {
+      loadingRef.current = true;
       setLoading(true);
-      console.log('Fetching files from SharePoint...');
+      console.log('Fetching files from SharePoint using OAuth2...');
       console.log('Current path:', currentPath.join('/'));
+      console.log('Selected drive:', sharePointDrive);
       
-      // Check if SharePoint is configured
-      const configResponse = await fetch('/api/sharepoint/check-config');
-      const configData = await configResponse.json();
-      
-      if (!configData.success || (configData.status !== 'fully_configured' && configData.status !== 'basic_configured')) {
-        console.log('SharePoint not configured, showing empty state');
-        setDisplayFiles([]);
-        return;
-      }
-      
-      // Get the default drive ID from config
-      const driveId = configData.config.driveId;
-      if (!driveId) {
-        console.log('No drive ID configured, showing empty state');
-        setDisplayFiles([]);
-        return;
-      }
-      
-      // Load files from SharePoint
-      const apiUrl = `/api/sharepoint?action=getItems&driveId=${driveId}&folderPath=${currentPath.join('/')}`;
-      console.log('DEBUG: Calling API:', apiUrl);
+      // Load files from SharePoint using the new OAuth2 API
+      const apiUrl = `/api/sharepoint/documents?action=getItems&driveId=${sharePointDrive.id}&folderPath=${currentPath.join('/')}&siteId=${sharePointSite?.id || ''}`;
+      console.log('DEBUG: Calling OAuth2 API:', apiUrl);
+      console.log('DEBUG: Drive ID type:', sharePointDrive.id.startsWith('virtual-') ? 'Virtual Drive' : 'Regular Drive');
+      console.log('DEBUG: Drive ID:', sharePointDrive.id);
       const response = await fetch(apiUrl);
       console.log('Load files response status:', response.status);
       
       if (response.ok) {
         const data = await response.json();
-        console.log('SharePoint response:', data);
+        console.log('SharePoint OAuth2 response:', data);
         console.log('DEBUG: Response data type:', typeof data);
         console.log('DEBUG: Response has value property:', data.hasOwnProperty('value'));
         console.log('DEBUG: Value is array:', Array.isArray(data.value));
@@ -201,17 +275,17 @@ export default function DocumentsPage() {
             isFolder: item.folder !== undefined,
             folder: item.folder,
             lastModifiedDateTime: item.lastModifiedDateTime || item.fileSystemInfo?.lastModifiedDateTime,
-            lastModifiedBy: {
+            lastModifiedBy: item.lastModifiedBy || {
               user: {
-                displayName: 'Chris Hart',
-                email: 'chris@thinkcompl.ai'
+                displayName: 'You',
+                email: 'user@example.com'
               }
             },
             createdDateTime: item.createdDateTime,
-            createdBy: {
+            createdBy: item.createdBy || {
               user: {
-                displayName: 'Chris Hart',
-                email: 'chris@thinkcompl.ai'
+                displayName: 'You',
+                email: 'user@example.com'
               }
             },
             fileSystemInfo: item.fileSystemInfo
@@ -224,42 +298,76 @@ export default function DocumentsPage() {
       } else {
         const errorText = await response.text();
         console.error('Failed to load files from SharePoint:', response.status, errorText);
-        setDisplayFiles([]);
+        
+        // If not authenticated, show empty state
+        if (response.status === 401) {
+          console.log('User not authenticated with SharePoint');
+          setDisplayFiles([]);
+        } else {
+          setDisplayFiles([]);
+        }
       }
     } catch (error) {
       console.error('Error loading files from SharePoint:', error);
       setDisplayFiles([]);
     } finally {
+      loadingRef.current = false;
       setLoading(false);
       console.log('Load files completed');
     }
   };
 
-  // Simple move function
+  // Load default SharePoint site on component mount
+  useEffect(() => {
+    loadDefaultSharePointSite();
+    
+    // Check if user just completed authentication
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('auth') === 'success') {
+      showNotification('success', 'Successfully connected to SharePoint!');
+      // Clean up the URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
+
+  // Load files when drive is selected or path changes
+  useEffect(() => {
+    if (sharePointDrive) {
+      loadFilesFromSharePoint();
+    }
+  }, [sharePointDrive, currentPath]);
+  
+  // Add a manual refresh function that can be called when needed
+  const refreshCurrentFolder = useCallback(async () => {
+    if (sharePointDrive) {
+      console.log('Manually refreshing current folder...');
+      await loadFilesFromSharePoint();
+    }
+  }, [sharePointDrive]);
+
+  // Simple move function using OAuth2
   const moveItem = async (itemName: string, targetPath: string[]) => {
+    if (!sharePointDrive) {
+      console.error('No drive selected');
+      return;
+    }
+
     try {
       console.log('Moving', itemName, 'to', targetPath.join('/'));
-      
-      const configResponse = await fetch('/api/sharepoint/check-config');
-      const configData = await configResponse.json();
-      
-      if (!configData.success) {
-        throw new Error('SharePoint not configured');
-      }
       
       // Construct the source path (where the item currently is)
       const sourcePath = [...currentPath, itemName].join('/');
       console.log('Source path:', sourcePath);
       console.log('Target path:', targetPath.join('/'));
       
-      const response = await fetch('/api/sharepoint', {
+      const response = await fetch('/api/sharepoint/documents', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           action: 'moveItem',
-          driveId: configData.config.driveId,
+          driveId: sharePointDrive.id,
           fileName: sourcePath,
           folderPath: targetPath.join('/'),
         }),
@@ -288,11 +396,29 @@ export default function DocumentsPage() {
 
   const moveItemWithId = async (itemId: string, itemName: string, targetPath: string[]) => {
     try {
+      console.log('=== MOVE OPERATION STARTED (Copy-and-Delete) ===');
       console.log('Moving item with ID:', itemId, 'name:', itemName, 'to', targetPath.join('/'));
       
-      // Check if this item was recently moved - UPDATED
+      // Show initial notification
+      showNotification('info', `Moving "${itemName}" to ${targetPath.join('/')}...`);
+      
+      // Check if we have the required SharePoint context
+      if (!sharePointDrive?.id) {
+        console.error('No SharePoint drive available');
+        showNotification('error', 'SharePoint drive not available. Please refresh the page and try again.');
+        return;
+      }
+      
+      if (!sharePointSite?.id) {
+        console.error('No SharePoint site available');
+        showNotification('error', 'SharePoint site not available. Please refresh the page and try again.');
+        return;
+      }
+      
+      // Check if this item was recently moved
       if (recentlyMovedItems.has(itemId)) {
         console.log('Item was recently moved, skipping duplicate move');
+        showNotification('warning', 'Item was recently moved, skipping duplicate operation.');
         return;
       }
       
@@ -308,30 +434,28 @@ export default function DocumentsPage() {
         });
       }, 5000);
       
-              console.log('Proceeding with move operation - UPDATED');
+      // OPTIMISTIC UPDATE: Remove the item from the current display immediately
+      setDisplayFiles(prev => prev.filter(item => item.id !== itemId));
       
-      const configResponse = await fetch('/api/sharepoint/check-config');
-      const configData = await configResponse.json();
+      const requestBody = {
+        action: 'moveItem',
+        itemId: itemId,
+        itemName: itemName,
+        folderPath: targetPath.join('/'),
+        driveId: sharePointDrive?.id,
+        siteId: sharePointSite?.id
+      };
       
-      if (!configData.success) {
-        throw new Error('SharePoint not configured');
-      }
-      
-      // NEW APPROACH: Use name-based move instead of ID-based move for better reliability
-      console.log('Using name-based move for better reliability');
-      
-              const requestBody = {
-          action: 'moveItem', // Use the name-based move action instead of moveItemById
-          driveId: configData.config.driveId,
-          fileName: itemName, // Use file name instead of ID
-          itemId: itemId, // Pass the item ID from frontend
-          folderPath: targetPath.join('/'),
-          currentPath: currentPath.join('/'), // Pass current path for context
-        };
-      
+      console.log('=== MOVE REQUEST DETAILS ===');
       console.log('Move request body:', requestBody);
+      console.log('Target path:', targetPath);
+      console.log('SharePoint drive ID:', sharePointDrive?.id);
+      console.log('SharePoint site ID:', sharePointSite?.id);
+      console.log('Is virtual drive:', sharePointDrive?.id?.startsWith('virtual-'));
+      console.log('Drive type:', sharePointDrive?.id?.startsWith('virtual-') ? 'Document Library' : 'Regular SharePoint Drive');
+      console.log('Using copy-and-delete approach for better reliability');
       
-      const response = await fetch('/api/sharepoint', {
+      const response = await fetch('/api/sharepoint/documents', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -343,43 +467,74 @@ export default function DocumentsPage() {
       
       if (response.ok) {
         const result = await response.json();
+        console.log('=== MOVE SUCCESS ===');
         console.log('Item moved successfully:', result);
         
-        // If we moved to root, reset the current path
-        if (targetPath.length === 0) {
-          console.log('Moved to root, resetting current path from', currentPath, 'to []');
-          setCurrentPath([]);
+        // Check if there's a warning about the original item not being deleted
+        if (result.warning) {
+          console.warn('Move completed with warning:', result.warning);
+          showNotification('warning', `Item moved successfully to ${targetPath.join('/')}! Note: ${result.warning}`);
         } else {
-          console.log('Moved to folder, updating current path from', currentPath, 'to:', targetPath);
-          setCurrentPath(targetPath);
+          // Show success feedback
+          console.log('Item moved successfully to:', targetPath.join('/'));
+          showNotification('success', `"${itemName}" moved successfully to ${targetPath.join('/')}!`);
         }
         
-        console.log('Waiting 1 second before refreshing file list...');
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        console.log('Refreshing file list...');
-        await loadFilesFromSharePoint();
-        console.log('File list refreshed');
+        // For document libraries, the move operation might take a moment to propagate
+        // So we'll refresh after a short delay
+        setTimeout(async () => {
+          console.log('Refreshing file list after move operation...');
+          await loadFilesFromSharePoint();
+        }, 1000);
       } else {
         const errorText = await response.text();
+        console.error('=== MOVE FAILED ===');
         console.error('Failed to move item:', response.status, errorText);
-        console.error('Error details:', errorText);
         
-        // Try to parse error as JSON for better debugging
+        // Try to parse the error for better debugging
+        let errorMessage = 'Failed to move item';
+        let errorDetails = '';
         try {
           const errorJson = JSON.parse(errorText);
-          console.error('Parsed error:', errorJson);
+          errorMessage = errorJson.error || errorMessage;
+          errorDetails = errorJson.details || '';
         } catch (e) {
-          console.error('Could not parse error as JSON');
+          errorMessage = errorText;
         }
         
-        // Refresh the file list to get current state
-        console.log('Refreshing file list after error...');
+        console.error('Move operation failed:', {
+          status: response.status,
+          error: errorMessage,
+          details: errorDetails,
+          itemId,
+          itemName,
+          targetPath: targetPath.join('/'),
+          driveId: sharePointDrive?.id,
+          siteId: sharePointSite?.id
+        });
+        
+        // Revert the optimistic update on error
+        console.log('Reverting optimistic update due to error...');
         await loadFilesFromSharePoint();
+        
+        // Show error to user with more details
+        const fullErrorMessage = errorDetails 
+          ? `Failed to move "${itemName}": ${errorMessage}\n\nDetails: ${errorDetails}`
+          : `Failed to move "${itemName}": ${errorMessage}`;
+        
+        showNotification('error', fullErrorMessage);
       }
     } catch (error) {
+      console.error('=== MOVE ERROR ===');
       console.error('Error moving item:', error);
-      // Refresh the file list on any error
+      
+      // Revert the optimistic update on error
+      console.log('Reverting optimistic update due to error...');
       await loadFilesFromSharePoint();
+      
+      // Show error to user
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      showNotification('error', `Error moving item: ${errorMessage}`);
     }
   };
 
@@ -427,37 +582,35 @@ export default function DocumentsPage() {
 
   // Navigate into a folder
   const navigateIntoFolder = (folderName: string) => {
-    setCurrentPath(prev => [...prev, folderName]);
+    console.log('=== NAVIGATING INTO FOLDER ===');
+    console.log('Current path before navigation:', currentPath);
+    console.log('Folder name to navigate into:', folderName);
+    const newPath = [...currentPath, folderName];
+    console.log('New path after navigation:', newPath);
+    setCurrentPath(newPath);
   };
 
-  // Create new folder in SharePoint
+  // Create new folder in SharePoint using OAuth2
   const handleCreateFolder = async () => {
     if (!newFolderName.trim()) return;
     
     setIsCreatingFolder(true);
     try {
-      console.log('Creating folder in SharePoint:', newFolderName);
+      console.log('Creating folder in SharePoint using OAuth2:', newFolderName);
       console.log('Current path:', currentPath);
+      console.log('Current drive ID:', sharePointDrive?.id);
       
-      // Check if SharePoint is configured
-      const configResponse = await fetch('/api/sharepoint/check-config');
-      const configData = await configResponse.json();
-      
-      if (!configData.success || (configData.status !== 'fully_configured' && configData.status !== 'basic_configured')) {
-        throw new Error('SharePoint not configured');
-      }
-      
-      // Create folder in SharePoint
-      const response = await fetch('/api/sharepoint', {
+      // Create folder in SharePoint using OAuth2
+      const response = await fetch('/api/sharepoint/documents', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           action: 'createFolder',
-          driveId: configData.config.driveId,
           folderPath: currentPath.join('/'),
-          fileName: newFolderName
+          fileName: newFolderName,
+          driveId: sharePointDrive?.id
         }),
       });
       
@@ -469,8 +622,71 @@ export default function DocumentsPage() {
       const result = await response.json();
       console.log('Folder created successfully:', result);
       
-      // Refresh the file list to show the new folder
-      await loadFilesFromSharePoint();
+      // Add a small delay to ensure the folder is fully created before refreshing
+      console.log('Waiting 1 second before refreshing file list...');
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // OPTIMISTIC UPDATE: Add the new folder to the display files immediately
+      const newFolder = {
+        name: newFolderName,
+        size: 0,
+        type: 'folder',
+        webkitRelativePath: newFolderName,
+        id: result.id || `temp-${Date.now()}`,
+        webUrl: result.webUrl || '',
+        downloadUrl: '',
+        isFolder: true,
+        folder: {},
+        lastModifiedDateTime: new Date().toISOString(),
+        lastModifiedBy: {
+          user: {
+            displayName: 'You',
+            email: 'user@example.com'
+          }
+        },
+        createdDateTime: new Date().toISOString(),
+        createdBy: {
+          user: {
+            displayName: 'You',
+            email: 'user@example.com'
+          }
+        },
+        fileSystemInfo: {
+          createdDateTime: new Date().toISOString(),
+          lastModifiedDateTime: new Date().toISOString()
+        }
+      };
+      
+      // Add the new folder to the display files
+      setDisplayFiles(prev => {
+        // Check if folder already exists to avoid duplicates
+        const exists = prev.some(f => f.name === newFolderName);
+        if (exists) {
+          return prev;
+        }
+        return [...prev, newFolder];
+      });
+      
+      console.log('Added new folder to display files:', newFolderName);
+      
+      // Only refresh the file list if the optimistic update fails
+      // This prevents loading items from fallback locations
+      setTimeout(async () => {
+        try {
+          // Verify the folder was actually created by making a targeted API call
+          const verifyResponse = await fetch(`/api/sharepoint/documents?action=getItems&driveId=${sharePointDrive.id}&folderPath=${currentPath.join('/')}&siteId=${sharePointSite?.id || ''}`);
+          if (verifyResponse.ok) {
+            const verifyData = await verifyResponse.json();
+            const folderExists = verifyData.value?.some((item: any) => item.name === newFolderName);
+            if (!folderExists) {
+              console.log('Folder not found in verification, refreshing file list...');
+              await loadFilesFromSharePoint();
+            }
+          }
+        } catch (error) {
+          console.log('Error verifying folder creation:', error);
+        }
+      }, 2000);
       
       // Reset form and close modal
       setNewFolderName('');
@@ -499,15 +715,7 @@ export default function DocumentsPage() {
     
     // BACKGROUND SYNC: Delete from SharePoint in background
     try {
-      // Check if SharePoint is configured
-      const configResponse = await fetch('/api/sharepoint/check-config');
-      const configData = await configResponse.json();
-      
-      if (!configData.success || (configData.status !== 'fully_configured' && configData.status !== 'basic_configured')) {
-        throw new Error('SharePoint not configured');
-      }
-      
-      const response = await fetch(`/api/sharepoint?driveId=${configData.config.driveId}&itemId=${file.id}`, {
+      const response = await fetch(`/api/sharepoint/documents?itemId=${file.id}&driveId=${sharePointDrive?.id}&siteId=${sharePointSite?.id}`, {
         method: 'DELETE',
       });
 
@@ -544,15 +752,7 @@ export default function DocumentsPage() {
     
     // BACKGROUND SYNC: Delete folder and all its contents from SharePoint in background
     try {
-      // Check if SharePoint is configured
-      const configResponse = await fetch('/api/sharepoint/check-config');
-      const configData = await configResponse.json();
-      
-      if (!configData.success || (configData.status !== 'fully_configured' && configData.status !== 'basic_configured')) {
-        throw new Error('SharePoint not configured');
-      }
-      
-      const response = await fetch(`/api/sharepoint?driveId=${configData.config.driveId}&itemId=${folder.id}`, {
+      const response = await fetch(`/api/sharepoint/documents?itemId=${folder.id}&driveId=${sharePointDrive?.id}&siteId=${sharePointSite?.id}`, {
         method: 'DELETE',
       });
 
@@ -777,16 +977,22 @@ export default function DocumentsPage() {
                 e.preventDefault();
                 e.dataTransfer.dropEffect = 'move';
                 e.currentTarget.classList.add('drop-zone-active');
+                setDragOverTarget([...currentPath, folder.name].join('/'));
               }}
               onDragLeave={(e) => {
                 e.currentTarget.classList.remove('drop-zone-active');
+                setDragOverTarget(null);
               }}
               onDrop={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                setDragOverTarget(null);
                 const itemName = e.dataTransfer.getData('text/plain');
                 const itemData = e.dataTransfer.getData('application/json');
+                console.log('=== FOLDER DROP ===');
                 console.log('Dropped item:', itemName, 'into folder:', folder.name);
+                console.log('Current path:', currentPath);
+                console.log('Item data:', itemData);
                 
                 if (itemName && itemName !== folder.name && itemData) {
                   // Don't allow dropping an item onto itself
@@ -808,6 +1014,8 @@ export default function DocumentsPage() {
                     
                     console.log('Moving item to target path:', targetPath);
                     console.log('Item data:', item);
+                    console.log('SharePoint drive:', sharePointDrive);
+                    console.log('SharePoint site:', sharePointSite);
                     moveItemWithId(item.id, item.name, targetPath);
                   } catch (error) {
                     console.error('Error parsing item data:', error);
@@ -858,6 +1066,7 @@ export default function DocumentsPage() {
                 cutItems.has(file.id) ? 'bg-gray-100 opacity-60' : 'bg-white'
               }`}
               draggable={true}
+              onClick={() => handleFileOpen(file)}
               onDragStart={(e) => {
                 console.log('=== FILE DRAG START ===');
                 console.log('Drag start on file:', file.name);
@@ -905,7 +1114,7 @@ export default function DocumentsPage() {
                 e.currentTarget.classList.remove('drop-zone-active');
               }}
               onContextMenu={(e) => handleContextMenu(e, file, 'file')}
-              style={{ userSelect: 'none', cursor: 'grab' }}
+              style={{ userSelect: 'none', cursor: 'pointer' }}
             >
               <div className="flex items-center">
                 {getFileIcon(file.name.split('.').pop() || '')}
@@ -1113,6 +1322,13 @@ export default function DocumentsPage() {
     setFileNames([]);
   };
 
+  const handleCloseRenameModal = () => {
+    setShowRenameModal(false);
+    setRenameItem(null);
+    setNewItemName('');
+    setIsRenaming(false);
+  };
+
   // Context menu handlers
   const handleContextMenu = (e: React.MouseEvent, item: any, type: 'file' | 'folder') => {
     e.preventDefault();
@@ -1147,9 +1363,76 @@ export default function DocumentsPage() {
   };
 
   const handleContextMenuRename = () => {
-    // TODO: Implement rename functionality
-    console.log('Rename clicked for:', contextMenu?.item.name);
+    if (!contextMenu) return;
+    
+    // Set up the rename modal
+    setRenameItem(contextMenu.item);
+    setNewItemName(contextMenu.item.name);
+    setShowRenameModal(true);
     setContextMenu(null);
+  };
+
+  const handleRenameItem = async () => {
+    if (!renameItem || !newItemName.trim()) {
+      handleCloseRenameModal();
+      return;
+    }
+    
+    // Check if the new name is the same as the current name
+    if (newItemName.trim() === renameItem.name) {
+      handleCloseRenameModal();
+      return;
+    }
+    
+    // Check if the new name contains invalid characters
+    const invalidChars = /[<>:"/\\|?*]/;
+    if (invalidChars.test(newItemName)) {
+      alert('The name contains invalid characters. Please use only letters, numbers, spaces, and common punctuation.');
+      return;
+    }
+    
+    setIsRenaming(true);
+    try {
+      console.log('Renaming item:', renameItem.name, 'to:', newItemName);
+      
+      // Rename item in SharePoint using OAuth2
+      const response = await fetch('/api/sharepoint/documents', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'renameItem',
+          itemId: renameItem.id,
+          newName: newItemName,
+          driveId: sharePointDrive?.id,
+          siteId: sharePointSite?.id
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to rename item');
+      }
+      
+      const result = await response.json();
+      console.log('Item renamed successfully:', result);
+      
+      // Update the display files optimistically
+      setDisplayFiles(prev => prev.map(item => 
+        item.id === renameItem.id 
+          ? { ...item, name: newItemName }
+          : item
+      ));
+      
+      // Reset form and close modal
+      handleCloseRenameModal();
+    } catch (error) {
+      console.error('Error renaming item:', error);
+      alert(`Failed to rename item: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsRenaming(false);
+    }
   };
 
   const handleContextMenuDownload = () => {
@@ -1187,24 +1470,15 @@ export default function DocumentsPage() {
     if (!clipboard) return;
     
     try {
-      // Check if SharePoint is configured
-      const configResponse = await fetch('/api/sharepoint/check-config');
-      const configData = await configResponse.json();
-      
-      if (!configData.success || (configData.status !== 'fully_configured' && configData.status !== 'basic_configured')) {
-        throw new Error('SharePoint not configured');
-      }
-
       if (clipboard.action === 'copy') {
-        // Copy the item
-        const response = await fetch('/api/sharepoint', {
+        // Copy the item using OAuth2
+        const response = await fetch('/api/sharepoint/documents', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
             action: 'copyItem',
-            driveId: configData.config.driveId,
             itemId: clipboard.item.id,
             folderPath: currentPath.join('/')
           })
@@ -1237,9 +1511,9 @@ export default function DocumentsPage() {
   };
 
   // Helper to group files by top-level folder
-  function groupFilesByFolder(files: File[]) {
-    const folders: { [folder: string]: File[] } = {};
-    const looseFiles: File[] = [];
+  function groupFilesByFolder(files: any[]) {
+    const folders: { [folder: string]: any[] } = {};
+    const looseFiles: any[] = [];
     files.forEach(file => {
       const relPath = (file as any).webkitRelativePath || '';
       if (relPath && relPath.includes('/')) {
@@ -1332,403 +1606,621 @@ export default function DocumentsPage() {
     // Remove accept restriction to allow all files
   });
 
-  return (
-    <motion.div
-      className="flex-1 flex flex-col h-full bg-blue-400"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.3 }}
+  // State for notifications
+  const [notification, setNotification] = useState<{
+    type: 'success' | 'error' | 'info' | 'warning';
+    message: string;
+    show: boolean;
+  } | null>(null);
 
-      onDragOver={(e) => {
-        console.log('Body drag over');
-        e.preventDefault();
-      }}
-      onDrop={(e) => {
-        console.log('Body drop');
-        e.preventDefault();
-      }}
-    >
-      <div className="px-6 pt-1 pb-1">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={() => navigateToLevel(-1)}
-              className="flex items-center space-x-2 px-3 py-1.5 rounded-md text-2xl font-bold transition-all duration-200 text-white hover:text-blue-200"
-              onDragOver={(e) => {
-                e.preventDefault();
-                e.dataTransfer.dropEffect = 'move';
-                e.currentTarget.classList.add('drop-zone-active');
-              }}
-              onDragLeave={(e) => {
-                e.currentTarget.classList.remove('drop-zone-active');
-              }}
-              onDrop={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const itemName = e.dataTransfer.getData('text/plain');
-                const itemData = e.dataTransfer.getData('application/json');
-                console.log('Dropped item:', itemName, 'onto Files (root)');
-                
-                if (itemName && itemData) {
-                  try {
-                    const item = JSON.parse(itemData);
-                    // Move to root (empty path)
-                    console.log('Moving item to root');
-                    console.log('Item data:', item);
-                    moveItemWithId(item.id, item.name, []);
-                  } catch (error) {
-                    console.error('Error parsing item data:', error);
-                  }
-                }
-                
-                e.currentTarget.classList.remove('drop-zone-active');
-              }}
-            >
-              <HiHome className="w-6 h-6" />
-              <span>Files</span>
-            </button>
-            <div className="flex space-x-1">
-              <button
-                onClick={() => setActiveFilter('all')}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
-                  activeFilter === 'all'
-                    ? "bg-blue-600 text-white shadow-lg"
-                    : "bg-white text-blue-600 hover:bg-gray-50"
-                }`}
-              >
-                All
-              </button>
-              <button
-                onClick={() => setActiveFilter('documents')}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
-                  activeFilter === 'documents'
-                    ? "bg-blue-600 text-white shadow-lg"
-                    : "bg-white text-blue-600 hover:bg-gray-50"
-                }`}
-              >
-                <HiDocument className="w-4 h-4" />
-                Documents
-              </button>
-              <button
-                onClick={() => setActiveFilter('drawings')}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
-                  activeFilter === 'drawings'
-                    ? "bg-blue-600 text-white shadow-lg"
-                    : "bg-white text-blue-600 hover:bg-gray-50"
-                }`}
-              >
-                <MdDraw className="w-4 h-4" />
-                Drawings
-              </button>
-              <button
-                onClick={() => setActiveFilter('images')}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
-                  activeFilter === 'images'
-                    ? "bg-blue-600 text-white shadow-lg"
-                    : "bg-white text-blue-600 hover:bg-gray-50"
-                }`}
-              >
-                <FaFileImage className="w-4 h-4" />
-                Images
-              </button>
+  // Function to show notifications
+  const showNotification = (type: 'success' | 'error' | 'info' | 'warning', message: string) => {
+    setNotification({ type, message, show: true });
+    // Auto-hide after 5 seconds
+    setTimeout(() => {
+      setNotification(null);
+    }, 5000);
+  };
+
+  // Function to hide notifications
+  const hideNotification = () => {
+    setNotification(null);
+  };
+
+  // File opening and handling functions
+  const handleFileOpen = async (file: any) => {
+    const extension = file.name.split('.').pop()?.toLowerCase() || '';
+    const fileType = getFileType(extension);
+    
+    try {
+      // Get the file download URL from SharePoint
+      const downloadUrl = await getFileDownloadUrl(file.id);
+      
+      if (!downloadUrl) {
+        showNotification('error', 'Unable to get file download URL');
+        return;
+      }
+
+      switch (fileType) {
+        case 'image':
+          handleImageOpen(file, downloadUrl);
+          break;
+        case 'document':
+          handleDocumentOpen(file, downloadUrl);
+          break;
+        case 'spreadsheet':
+          handleSpreadsheetOpen(file, downloadUrl);
+          break;
+        case 'presentation':
+          handlePresentationOpen(file, downloadUrl);
+          break;
+        case 'pdf':
+          handlePdfOpen(file, downloadUrl);
+          break;
+        case 'video':
+          handleVideoOpen(file, downloadUrl);
+          break;
+        case 'audio':
+          handleAudioOpen(file, downloadUrl);
+          break;
+        default:
+          handleGenericFileOpen(file, downloadUrl);
+      }
+    } catch (error) {
+      console.error('Error opening file:', error);
+      showNotification('error', 'Failed to open file');
+    }
+  };
+
+  // Get file download URL from SharePoint
+  const getFileDownloadUrl = async (fileId: string): Promise<string | null> => {
+    try {
+      const response = await fetch(`/api/sharepoint/documents?action=getDownloadUrl&fileId=${fileId}&driveId=${sharePointDrive?.id}`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        return data.downloadUrl || null;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting download URL:', error);
+      return null;
+    }
+  };
+
+  // File type detection
+  const getFileType = (extension: string): string => {
+    const imageTypes = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff', 'webp', 'svg'];
+    const documentTypes = ['doc', 'docx', 'txt', 'rtf', 'odt'];
+    const spreadsheetTypes = ['xls', 'xlsx', 'csv', 'ods'];
+    const presentationTypes = ['ppt', 'pptx', 'odp'];
+    const videoTypes = ['mp4', 'avi', 'mov', 'wmv', 'flv', 'webm'];
+    const audioTypes = ['mp3', 'wav', 'ogg', 'aac', 'flac'];
+    
+    if (imageTypes.includes(extension)) return 'image';
+    if (documentTypes.includes(extension)) return 'document';
+    if (spreadsheetTypes.includes(extension)) return 'spreadsheet';
+    if (presentationTypes.includes(extension)) return 'presentation';
+    if (extension === 'pdf') return 'pdf';
+    if (videoTypes.includes(extension)) return 'video';
+    if (audioTypes.includes(extension)) return 'audio';
+    return 'generic';
+  };
+
+  // Handle image files
+  const handleImageOpen = (file: any, downloadUrl: string) => {
+    // Open image in a modal preview
+    setPreviewFile({ ...file, url: downloadUrl, type: 'image' });
+    setShowPreviewModal(true);
+  };
+
+  // Handle document files
+  const handleDocumentOpen = (file: any, downloadUrl: string) => {
+    const extension = file.name.split('.').pop()?.toLowerCase() || '';
+    
+    if (extension === 'txt' || extension === 'rtf') {
+      // Open text files in preview modal
+      setPreviewFile({ ...file, url: downloadUrl, type: 'text' });
+      setShowPreviewModal(true);
+    } else {
+      // Open Office documents in new tab or download
+      window.open(downloadUrl, '_blank');
+    }
+  };
+
+  // Handle spreadsheet files
+  const handleSpreadsheetOpen = (file: any, downloadUrl: string) => {
+    // Open in new tab for Excel files
+    window.open(downloadUrl, '_blank');
+  };
+
+  // Handle presentation files
+  const handlePresentationOpen = (file: any, downloadUrl: string) => {
+    // Open in new tab for PowerPoint files
+    window.open(downloadUrl, '_blank');
+  };
+
+  // Handle PDF files
+  const handlePdfOpen = (file: any, downloadUrl: string) => {
+    // Open PDF in preview modal or new tab
+    setPreviewFile({ ...file, url: downloadUrl, type: 'pdf' });
+    setShowPreviewModal(true);
+  };
+
+  // Handle video files
+  const handleVideoOpen = (file: any, downloadUrl: string) => {
+    // Open video in preview modal
+    setPreviewFile({ ...file, url: downloadUrl, type: 'video' });
+    setShowPreviewModal(true);
+  };
+
+  // Handle audio files
+  const handleAudioOpen = (file: any, downloadUrl: string) => {
+    // Open audio in preview modal
+    setPreviewFile({ ...file, url: downloadUrl, type: 'audio' });
+    setShowPreviewModal(true);
+  };
+
+  // Handle generic files
+  const handleGenericFileOpen = (file: any, downloadUrl: string) => {
+    // Download the file
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = file.name;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Download file function
+  const handleFileDownload = async (file: any) => {
+    try {
+      if (!sharePointDrive?.id) {
+        showNotification('error', 'SharePoint drive not available');
+        return;
+      }
+      
+      // Use the new backend download endpoint to avoid CORS issues
+      const downloadUrl = `/api/sharepoint/documents?action=downloadFile&fileId=${encodeURIComponent(file.id)}&driveId=${encodeURIComponent(sharePointDrive.id)}&fileName=${encodeURIComponent(file.name)}`;
+      
+      // Create a temporary link element
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = file.name;
+      link.style.display = 'none';
+      
+      // Append to body, click, and remove
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      showNotification('success', `Downloaded ${file.name}`);
+    } catch (error) {
+      console.error('Error downloading file:', error);
+      showNotification('error', 'Failed to download file');
+    }
+  };
+
+  return (
+    <div className="h-screen bg-blue-400">
+      {/* Notification Component */}
+      {notification && (
+        <div className={`fixed top-4 right-4 z-50 max-w-sm w-full p-4 rounded-lg shadow-lg border ${
+          notification.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' :
+          notification.type === 'error' ? 'bg-red-50 border-red-200 text-red-800' :
+          notification.type === 'warning' ? 'bg-yellow-50 border-yellow-200 text-yellow-800' :
+          'bg-blue-50 border-blue-200 text-blue-800'
+        }`}>
+          <div className="flex items-start justify-between">
+            <div className="flex items-center space-x-3">
+              {notification.type === 'success' && (
+                <svg className="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+              )}
+              {notification.type === 'error' && (
+                <svg className="w-5 h-5 text-red-600" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                </svg>
+              )}
+              {notification.type === 'warning' && (
+                <svg className="w-5 h-5 text-yellow-600" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+              )}
+              {notification.type === 'info' && (
+                <svg className="w-5 h-5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                </svg>
+              )}
+              <p className="text-sm font-medium">{notification.message}</p>
             </div>
-          </div>
-          <div className="flex items-center space-x-1">
             <button
-              onClick={() => setShowNewFolderModal(true)}
-              className="bg-white text-blue-600 hover:bg-gray-50 px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 shadow-lg flex items-center gap-1.5"
+              onClick={hideNotification}
+              className="ml-4 text-gray-400 hover:text-gray-600"
             >
-              <HiPlus className="w-4 h-4" />
-              New
-            </button>
-            <button
-              onClick={() => setShowUploadModal(true)}
-              className="bg-white text-blue-600 hover:bg-gray-50 px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 shadow-lg flex items-center gap-1.5"
-            >
-              <HiUpload className="w-4 h-4" />
-              Upload
-            </button>
-            <button
-              onClick={() => {
-                console.log('Force refreshing SharePoint data...');
-                loadFilesFromSharePoint();
-              }}
-              className="bg-white text-blue-600 hover:bg-gray-50 px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 shadow-lg flex items-center gap-1.5"
-            >
-              <HiRefresh className="w-4 h-4" />
-            </button>
-                        {clipboard && (
-              <button
-                onClick={handleContextMenuPaste}
-                className="bg-green-600 text-white hover:bg-green-700 px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 shadow-lg flex items-center gap-1.5"
-                title={`Paste ${clipboard.item.name} (${clipboard.action})`}
-              >
-                <HiClipboard className="w-4 h-4" />
-                Paste
-              </button>
-            )}
-            <button
-              onClick={async () => {
-                try {
-                  const response = await fetch('/api/sharepoint/auth?action=login');
-                  const data = await response.json();
-                  if (data.authUrl) {
-                    window.location.href = data.authUrl;
-                  }
-                } catch (error) {
-                  console.error('Error starting auth:', error);
-                  alert('Failed to start authentication');
-                }
-              }}
-              className="bg-white text-blue-600 hover:bg-gray-50 px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 shadow-lg flex items-center gap-1.5"
-            >
-              <HiShare className="w-4 h-4" />
-              Sign In
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+              </svg>
             </button>
           </div>
         </div>
+      )}
 
-        <div 
-          className="bg-white rounded-lg shadow-lg mt-4 overflow-hidden"
-          style={{ 
-            border: '2px dashed transparent',
-            transition: 'border-color 0.2s'
-          }}
+      <div className="flex h-full">
+        <motion.div
+          className="flex-1 flex flex-col h-full bg-blue-400"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.3 }}
           onDragOver={(e) => {
+            console.log('Body drag over');
             e.preventDefault();
-            e.dataTransfer.dropEffect = 'move';
-            // Only show drop zone if not hovering over a specific item
-            if (!(e.target as Element).closest('[draggable]')) {
-              e.currentTarget.style.borderColor = '#3B82F6';
-              e.currentTarget.style.backgroundColor = '#EFF6FF';
-            }
-          }}
-          onDragLeave={(e) => {
-            e.currentTarget.style.borderColor = 'transparent';
-            e.currentTarget.style.backgroundColor = '';
           }}
           onDrop={(e) => {
+            console.log('Body drop');
             e.preventDefault();
-            e.stopPropagation();
-            // setIsDropping(true); // Removed as per new logic
-            const itemName = e.dataTransfer.getData('text/plain');
-            console.log('Dropped item:', itemName, 'into current folder:', currentPath.join('/'));
-            
-            // Execute the drop
-            if (itemName) {
-              console.log('Dropping item:', itemName, 'into current folder');
-              moveItem(itemName, currentPath);
-            }
-            e.currentTarget.style.borderColor = 'transparent';
-            e.currentTarget.style.backgroundColor = '';
-            
-            // Reset dropping flag after a short delay - REMOVED
-            // setTimeout(() => setIsDropping(false), 100);
           }}
         >
-          {/* Files Section */}
-          <div className="p-6">
-            {/* Page Header - Files title with inline breadcrumb */}
+          <div className="px-6 pt-1 pb-1">
             <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center space-x-2">
-                {/* Files button styled like breadcrumb folders */}
+              <div className="flex items-center space-x-4">
                 <button
                   onClick={() => navigateToLevel(-1)}
+                  className="flex items-center space-x-2 px-3 py-1.5 rounded-md text-2xl font-bold transition-all duration-200 text-white hover:text-blue-200"
                   onDragOver={(e) => {
                     e.preventDefault();
                     e.dataTransfer.dropEffect = 'move';
-                    e.currentTarget.classList.add('bg-blue-100', 'text-blue-700', 'border', 'border-blue-300');
+                    e.currentTarget.classList.add('drop-zone-active');
                   }}
                   onDragLeave={(e) => {
-                    e.currentTarget.classList.remove('bg-blue-100', 'text-blue-700', 'border', 'border-blue-300');
+                    e.currentTarget.classList.remove('drop-zone-active');
                   }}
                   onDrop={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
                     const itemName = e.dataTransfer.getData('text/plain');
                     const itemData = e.dataTransfer.getData('application/json');
+                    console.log('Dropped item:', itemName, 'onto Files (root)');
+                    
                     if (itemName && itemData) {
                       try {
                         const item = JSON.parse(itemData);
-                        console.log('Moving item to root:', item);
+                        // Move to root (empty path)
+                        console.log('Moving item to root');
+                        console.log('Item data:', item);
                         moveItemWithId(item.id, item.name, []);
                       } catch (error) {
                         console.error('Error parsing item data:', error);
                       }
                     }
-                    e.currentTarget.classList.remove('bg-blue-100', 'text-blue-700', 'border', 'border-blue-300');
+                    
+                    e.currentTarget.classList.remove('drop-zone-active');
                   }}
-                  className={`flex items-center space-x-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 ${
-                    currentPath.length === 0 
-                      ? 'text-gray-900 bg-gray-50 border border-gray-200' 
-                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                  }`}
                 >
-                  <HiFolder className="w-4 h-4 text-blue-600" />
-                  <span className="truncate max-w-32">Files</span>
+                  <HiHome className="w-6 h-6" />
+                  <span>Files</span>
                 </button>
+                <div className="flex space-x-1">
+                  <button
+                    onClick={() => setActiveFilter('all')}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
+                      activeFilter === 'all'
+                        ? "bg-blue-600 text-white shadow-lg"
+                        : "bg-white text-blue-600 hover:bg-gray-50"
+                    }`}
+                  >
+                    All
+                  </button>
+                  <button
+                    onClick={() => setActiveFilter('documents')}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
+                      activeFilter === 'documents'
+                        ? "bg-blue-600 text-white shadow-lg"
+                        : "bg-white text-blue-600 hover:bg-gray-50"
+                    }`}
+                  >
+                    <HiDocument className="w-4 h-4" />
+                    Documents
+                  </button>
+                  <button
+                    onClick={() => setActiveFilter('drawings')}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
+                      activeFilter === 'drawings'
+                        ? "bg-blue-600 text-white shadow-lg"
+                        : "bg-white text-blue-600 hover:bg-gray-50"
+                    }`}
+                  >
+                    <MdDraw className="w-4 h-4" />
+                    Drawings
+                  </button>
+                  <button
+                    onClick={() => setActiveFilter('images')}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
+                      activeFilter === 'images'
+                        ? "bg-blue-600 text-white shadow-lg"
+                        : "bg-white text-blue-600 hover:bg-gray-50"
+                    }`}
+                  >
+                    <FaFileImage className="w-4 h-4" />
+                    Images
+                  </button>
+                </div>
+              </div>
+              <div className="flex items-center space-x-1">
+                <button
+                  onClick={() => setShowNewFolderModal(true)}
+                  className="bg-white text-blue-600 hover:bg-gray-50 px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 shadow-lg flex items-center gap-1.5"
+                >
+                  <HiPlus className="w-4 h-4" />
+                  New
+                </button>
+                <button
+                  onClick={() => setShowUploadModal(true)}
+                  className="bg-white text-blue-600 hover:bg-gray-50 px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 shadow-lg flex items-center gap-1.5"
+                >
+                  <HiUpload className="w-4 h-4" />
+                  Upload
+                </button>
+                <button
+                  onClick={() => {
+                    console.log('Force refreshing SharePoint data...');
+                    loadFilesFromSharePoint();
+                  }}
+                  className="bg-white text-blue-600 hover:bg-gray-50 px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 shadow-lg flex items-center gap-1.5"
+                >
+                  <HiRefresh className="w-4 h-4" />
+                  Refresh
+                </button>
+                {clipboard && (
+                  <button
+                    onClick={handleContextMenuPaste}
+                    className="bg-green-600 text-white hover:bg-green-700 px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 shadow-lg flex items-center gap-1.5"
+                    title={`Paste ${clipboard.item.name} (${clipboard.action})`}
+                  >
+                    <HiClipboard className="w-4 h-4" />
+                    Paste
+                  </button>
+                )}
+                <button
+                  onClick={async () => {
+                    try {
+                      console.log('Starting SharePoint authentication...');
+                      const response = await fetch('/api/sharepoint/auth?action=login');
+                      const data = await response.json();
+                      
+                      if (data.authUrl) {
+                        console.log('Redirecting to SharePoint authentication:', data.authUrl);
+                        showNotification('info', 'Redirecting to Microsoft authentication...');
+                        window.location.href = data.authUrl;
+                      } else {
+                        console.error('No auth URL received:', data);
+                        showNotification('error', 'Failed to start authentication. Please try again.');
+                      }
+                    } catch (error) {
+                      console.error('Error starting auth:', error);
+                      showNotification('error', 'Failed to start authentication. Please try again.');
+                    }
+                  }}
+                  className="bg-white text-blue-600 hover:bg-gray-50 px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 shadow-lg flex items-center gap-1.5"
+                >
+                  <HiShare className="w-4 h-4" />
+                  {sharePointSite ? 'Reconnect' : 'Sign In'}
+                </button>
+              </div>
+            </div>
+
+            <div 
+              className="bg-white rounded-lg shadow-lg mt-4 p-4"
+              style={{ 
+                border: '2px dashed transparent',
+                transition: 'border-color 0.2s'
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                // Only show drop zone if not hovering over a specific item
+                if (!(e.target as Element).closest('[draggable]')) {
+                  e.currentTarget.style.borderColor = '#3B82F6';
+                  e.currentTarget.style.backgroundColor = '#EFF6FF';
+                }
+              }}
+              onDragLeave={(e) => {
+                e.currentTarget.style.borderColor = 'transparent';
+                e.currentTarget.style.backgroundColor = '';
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                // setIsDropping(true); // Removed as per new logic
+                const itemName = e.dataTransfer.getData('text/plain');
+                console.log('Dropped item:', itemName, 'into current folder:', currentPath.join('/'));
                 
-                {/* SharePoint-style Breadcrumb - Inline with Files title */}
-                {currentPath.length > 0 && (
-                  <SharePointBreadcrumb 
-                    path={currentPath} 
-                    onNavigate={navigateToLevel}
-                    onDragOver={(e, targetPath) => {
-                      console.log('Breadcrumb drag over:', targetPath);
+                // Execute the drop
+                if (itemName) {
+                  console.log('Dropping item:', itemName, 'into current folder');
+                  moveItem(itemName, currentPath);
+                }
+                e.currentTarget.style.borderColor = 'transparent';
+                e.currentTarget.style.backgroundColor = '';
+                
+                // Reset dropping flag after a short delay - REMOVED
+                // setTimeout(() => setIsDropping(false), 100);
+              }}
+            >
+              {/* Files Section */}
+              <div>
+                {/* Page Header - Files title with inline breadcrumb */}
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center space-x-2">
+                    {/* Files button styled like breadcrumb folders */}
+                    <button
+                      onClick={() => navigateToLevel(-1)}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'move';
+                        e.currentTarget.classList.add('bg-blue-100', 'text-blue-700', 'border', 'border-blue-300');
+                      }}
+                      onDragLeave={(e) => {
+                        e.currentTarget.classList.remove('bg-blue-100', 'text-blue-700', 'border', 'border-blue-300');
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const itemName = e.dataTransfer.getData('text/plain');
+                        const itemData = e.dataTransfer.getData('application/json');
+                        console.log('Dropped item:', itemName, 'onto Files (root)');
+                        
+                        if (itemName && itemData) {
+                          try {
+                            const item = JSON.parse(itemData);
+                            console.log('Moving item to root');
+                            console.log('Item data:', item);
+                            moveItemWithId(item.id, item.name, []);
+                          } catch (error) {
+                            console.error('Error parsing item data:', error);
+                          }
+                        }
+                        
+                        e.currentTarget.classList.remove('bg-blue-100', 'text-blue-700', 'border', 'border-blue-300');
+                      }}
+                      className="flex items-center space-x-2 px-3 py-1.5 rounded-md text-lg font-semibold transition-all duration-200 text-gray-700 hover:text-blue-600 hover:bg-blue-50"
+                    >
+                      <HiHome className="w-5 h-5" />
+                      <span>Files</span>
+                    </button>
+                    {currentPath.length > 0 && (
+                      <>
+                        <HiChevronRight className="w-4 h-4 text-gray-400" />
+                        <SharePointBreadcrumb
+                          path={currentPath}
+                          onNavigate={navigateToLevel}
+                          onDragOver={(e, targetPath) => {
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = 'move';
+                            e.currentTarget.classList.add('bg-blue-100', 'text-blue-700', 'border', 'border-blue-300');
+                          }}
+                          onDragLeave={(e) => {
+                            e.currentTarget.classList.remove('bg-blue-100', 'text-blue-700', 'border', 'border-blue-300');
+                          }}
+                          onDrop={(e, targetPath) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const itemName = e.dataTransfer.getData('text/plain');
+                            const itemData = e.dataTransfer.getData('application/json');
+                            console.log('Dropped item:', itemName, 'onto path:', targetPath.join('/'));
+                            
+                            if (itemName && itemData) {
+                              try {
+                                const item = JSON.parse(itemData);
+                                console.log('Moving item to path:', targetPath);
+                                console.log('Item data:', item);
+                                moveItemWithId(item.id, item.name, targetPath);
+                              } catch (error) {
+                                console.error('Error parsing item data:', error);
+                              }
+                            }
+                            
+                            e.currentTarget.classList.remove('bg-blue-100', 'text-blue-700', 'border', 'border-blue-300');
+                          }}
+                          dragOverTarget={dragOverTarget}
+                        />
+                      </>
+                    )}
+                  </div>
+                </div>
+                {loading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="text-center">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-400 mx-auto mb-4"></div>
+                      <p className="text-gray-600">Loading files...</p>
+                    </div>
+                  </div>
+                ) : displayFiles.length > 0 ? (
+                  <div
+                    onDragOver={(e) => {
+                      console.log('Inner container drag over');
                       e.preventDefault();
                       e.dataTransfer.dropEffect = 'move';
-                      // Add visual feedback for breadcrumb drop zones
-                      e.currentTarget.classList.add('drop-zone-active');
+                      setDragOverTarget(currentPath.join('/'));
                     }}
-                    onDragLeave={(e) => {
-                      // Remove visual feedback when leaving breadcrumb
-                      e.currentTarget.classList.remove('drop-zone-active');
-                    }}
-                    onDrop={(e, targetPath) => {
-                      console.log('Breadcrumb drop:', targetPath);
+                    onDrop={(e) => {
+                      console.log('Inner container drop');
+                      setDragOverTarget(null);
                       const itemName = e.dataTransfer.getData('text/plain');
                       const itemData = e.dataTransfer.getData('application/json');
                       if (itemName && itemData) {
                         try {
                           const item = JSON.parse(itemData);
-                          console.log('Moving item to breadcrumb path:', targetPath);
+                          console.log('Moving item to current path:', currentPath);
                           console.log('Item data:', item);
-                          moveItemWithId(item.id, item.name, targetPath);
+                          moveItemWithId(item.id, item.name, currentPath);
                         } catch (error) {
                           console.error('Error parsing item data:', error);
                         }
                       }
-                      // Remove visual feedback
-                      e.currentTarget.classList.remove('drop-zone-active');
                     }}
-                    dragOverTarget={null} // No specific drag over target for breadcrumb
-                  />
+                  >
+                    {/* Current Folder View */}
+                    <CurrentFolderView node={{ name: '', files: [], subfolders: {} }} />
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="text-center">
+                      <HiDocument className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                      <p className="text-gray-500">No files uploaded yet</p>
+                      <p className="text-sm text-gray-400">Upload your first files using the button above</p>
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
-            {displayFiles.length > 0 ? (
-              <div
-                onDragOver={(e) => {
-                  console.log('Inner container drag over');
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = 'move';
-                }}
-                onDrop={(e) => {
-                  console.log('Inner container drop');
-                  const itemName = e.dataTransfer.getData('text/plain');
-                  const itemData = e.dataTransfer.getData('application/json');
-                  if (itemName && itemData) {
-                    try {
-                      const item = JSON.parse(itemData);
-                      console.log('Moving item to current path:', currentPath);
-                      console.log('Item data:', item);
-                      moveItemWithId(item.id, item.name, currentPath);
-                    } catch (error) {
-                      console.error('Error parsing item data:', error);
-                    }
-                  }
-                }}
-              >
-                {/* Current Folder View */}
-                {loading ? (
-                  <div className="flex items-center justify-center h-64">
-                    <div className="text-center">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                      <p className="text-gray-600">Loading files...</p>
-                    </div>
-                  </div>
-                ) : (
-                  <CurrentFolderView node={{ name: '', files: [], subfolders: {} }} />
-                )}
-              </div>
-            ) : (
-              <div className="text-center py-8 text-gray-500">
-                <HiDocument className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                <p>No files uploaded yet</p>
-                <p className="text-sm">Upload your first files using the button above</p>
-              </div>
-            )}
           </div>
-        </div>
-      </div>
 
-      {/* Upload Modal */}
-      {showUploadModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <motion.div
-            className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4"
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-          >
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-gray-800">Add Documents</h2>
-                <button
-                  onClick={handleCloseModal}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <HiX className="w-6 h-6" />
-                </button>
-              </div>
+          {/* Upload Modal */}
+          {showUploadModal && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <motion.div
+                className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4"
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+              >
+                <div className="p-6">
+                  <div className="flex items-center justify-between mb-6">
+                    <h2 className="text-xl font-bold text-gray-800">Add Documents</h2>
+                    <button
+                      onClick={handleCloseModal}
+                      className="text-gray-400 hover:text-gray-600"
+                    >
+                      <HiX className="w-6 h-6" />
+                    </button>
+                  </div>
 
-              {showFolderDropWarning && (
-                <div className="mb-4 p-3 bg-yellow-100 border border-yellow-300 text-yellow-800 rounded text-sm flex items-center gap-2">
-                  <span className="font-bold">⚠️</span>
-                  To upload a folder with its structure, please use the “Browse files or folders” button below.
-                  <button onClick={() => setShowFolderDropWarning(false)} className="ml-auto text-yellow-700 hover:text-yellow-900">✕</button>
-                </div>
-              )}
+                  {showFolderDropWarning && (
+                    <div className="mb-4 p-3 bg-yellow-100 border border-yellow-300 text-yellow-800 rounded text-sm flex items-center gap-2">
+                      <span className="font-bold">⚠️</span>
+                      To upload a folder with its structure, please use the &quot;Browse files or folders&quot; button below.
+                      <button onClick={() => setShowFolderDropWarning(false)} className="ml-auto text-yellow-700 hover:text-yellow-900">✕</button>
+                    </div>
+                  )}
 
-              {/* Selected Files Display */}
-              {(selectedFiles.length > 0) && (
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Selected Files</label>
-                  <div className="max-h-80 overflow-y-auto space-y-2 border border-gray-200 rounded-lg p-3">
-                    {/* Show folders as single rows */}
-                    {Object.keys(folders).map(folderName => (
-                      <div key={folderName} className="p-2 bg-gray-50 rounded border group relative flex items-center gap-2">
-                        <HiFolder className="w-4 h-4 text-blue-600" />
-                        <span className="font-medium text-gray-800 flex-1">{folderName}</span>
-                        <span className="text-xs text-gray-500">{folders[folderName].length} files</span>
-                        <button
-                          onClick={() => {
-                            const folderFiles = folders[folderName];
-                            setSelectedFiles(prev => prev.filter(f => !folderFiles.includes(f)));
-                            setFileNames(prev => prev.filter((_, i) => !folderFiles.includes(selectedFiles[i])));
-                          }}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-red-500 hover:text-red-700"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                      </div>
-                    ))}
-                    {/* Show loose files as before */}
-                    {looseFiles.map((file, index) => (
-                      <div key={file.name + index} className="p-2 bg-gray-50 rounded border group relative">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2 flex-1">
-                            {getFileIcon(file.name.split('.').pop() || '')}
-                            <input
-                              type="text"
-                              value={fileNames[selectedFiles.indexOf(file)] || ''}
-                              onChange={(e) => handleFileNameChange(selectedFiles.indexOf(file), e.target.value)}
-                              className="flex-1 text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 text-black"
-                              placeholder="Enter filename..."
-                            />
-                            <span className="text-xs text-gray-500">
-                              .{getFileExtension(file.name)}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2 ml-2">
-                            <span className="text-xs text-gray-500">{formatFileSize(file.size)}</span>
+                  {/* Selected Files Display */}
+                  {(selectedFiles.length > 0) && (
+                    <div className="mb-6">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Selected Files</label>
+                      <div className="max-h-80 overflow-y-auto space-y-2 border border-gray-200 rounded-lg p-3">
+                        {/* Show folders as single rows */}
+                        {Object.keys(folders).map(folderName => (
+                          <div key={folderName} className="p-2 bg-gray-50 rounded border group relative flex items-center gap-2">
+                            <HiFolder className="w-4 h-4 text-blue-600" />
+                            <span className="font-medium text-gray-800 flex-1">{folderName}</span>
+                            <span className="text-xs text-gray-500">{folders[folderName].length} files</span>
                             <button
                               onClick={() => {
-                                const idx = selectedFiles.indexOf(file);
-                                setSelectedFiles(prev => prev.filter((_, i) => i !== idx));
-                                setFileNames(prev => prev.filter((_, i) => i !== idx));
+                                const folderFiles = folders[folderName];
+                                setSelectedFiles(prev => prev.filter(f => !folderFiles.includes(f)));
+                                setFileNames(prev => prev.filter((_, i) => !folderFiles.includes(selectedFiles[i])));
                               }}
                               className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-red-500 hover:text-red-700"
                             >
@@ -1737,210 +2229,402 @@ export default function DocumentsPage() {
                               </svg>
                             </button>
                           </div>
-                        </div>
+                        ))}
+                        {/* Show loose files as before */}
+                        {looseFiles.map((file, index) => (
+                          <div key={file.name + index} className="p-2 bg-gray-50 rounded border group relative">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2 flex-1">
+                                {getFileIcon(file.name.split('.').pop() || '')}
+                                <input
+                                  type="text"
+                                  value={fileNames[selectedFiles.indexOf(file)] || ''}
+                                  onChange={(e) => handleFileNameChange(selectedFiles.indexOf(file), e.target.value)}
+                                  className="flex-1 text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 text-black"
+                                  placeholder="Enter filename..."
+                                />
+                                <span className="text-xs text-gray-500">
+                                  .{getFileExtension(file.name)}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 ml-2">
+                                <span className="text-xs text-gray-500">{formatFileSize(file.size)}</span>
+                                <button
+                                  onClick={() => {
+                                    const idx = selectedFiles.indexOf(file);
+                                    setSelectedFiles(prev => prev.filter((_, i) => i !== idx));
+                                    setFileNames(prev => prev.filter((_, i) => i !== idx));
+                                  }}
+                                  className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-red-500 hover:text-red-700"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                  </svg>
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    </div>
+                  )}
+
+                  {/* Attach Documents */}
+                  <div className="mb-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Attach Documents</label>
+                    {/* Existing dropzone and file input UI below */}
+                    <div
+                      {...getRootProps()}
+                      onDropCapture={handleDropCapture}
+                      onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
+                      onDragEnter={e => { e.preventDefault(); e.stopPropagation(); }}
+                      className={
+                        `border-2 border-dashed rounded-lg p-6 text-center transition-all duration-200 cursor-pointer min-h-[220px] flex flex-col justify-center items-center ` +
+                        (isDragActive ? 'border-blue-400 bg-blue-50' : 'border-gray-300 bg-gray-50')
+                      }
+                    >
+                      <input
+                        id="dropzone-input"
+                        style={{ display: 'none' }}
+                        {...(getInputProps() as any)}
+                        {...(typeof window !== 'undefined' ? { webkitdirectory: "true", directory: "true" } : {})}
+                      />
+                      <HiUpload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                      {isDragActive ? (
+                        <p className="text-blue-600 font-medium">Drop the files here...</p>
+                      ) : showFolderDropWarning ? (
+                        <div className="flex flex-col items-center justify-center h-full">
+                          <label
+                            htmlFor="dropzone-input"
+                            className="mt-2 px-4 py-2 bg-blue-600 text-white rounded font-semibold hover:bg-blue-700 transition-colors cursor-pointer"
+                          >
+                            Browse folders here
+                          </label>
+                          <p className="text-xs text-gray-400 mt-2">To upload a folder with its structure, use the browse button and select a folder.</p>
+                        </div>
+                      ) : (
+                        <div>
+                          <p className="text-gray-600 font-medium mb-1">Drag and drop files here</p>
+                          <p className="text-sm text-gray-500">or</p>
+                          <label
+                            htmlFor="dropzone-input"
+                            className="text-blue-600 hover:text-blue-700 font-medium cursor-pointer"
+                          >
+                            Browse to upload folders
+                          </label>
+                          <p className="text-xs text-gray-400 mt-1">To upload a folder with its structure, use the browse button and select a folder.</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+
+
+                  {/* Upload Button */}
+                  <button
+                    onClick={() => {
+                      console.log('Upload button clicked');
+                      handleUpload();
+                    }}
+                    disabled={selectedFiles.length === 0}
+                    className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+                  >
+                    <HiUpload className="w-4 h-4" />
+                    <span>Upload Instantly</span>
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+
+          {/* New Folder Modal */}
+          {showNewFolderModal && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <motion.div
+                className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4"
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+              >
+                <div className="p-6">
+                  <div className="flex items-center justify-between mb-6">
+                    <h2 className="text-xl font-bold text-gray-800">Create New Folder</h2>
+                    <button
+                      onClick={() => setShowNewFolderModal(false)}
+                      className="text-gray-400 hover:text-gray-600"
+                    >
+                      <HiX className="w-6 h-6" />
+                    </button>
+                  </div>
+
+                  <div className="mb-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Folder Name
+                    </label>
+                    <input
+                      type="text"
+                      value={newFolderName}
+                      onChange={(e) => setNewFolderName(e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                      placeholder="Enter folder name..."
+                      onKeyPress={(e) => {
+                        if (e.key === 'Enter') {
+                          handleCreateFolder();
+                        }
+                      }}
+                    />
+                  </div>
+
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setShowNewFolderModal(false)}
+                      className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                      disabled={isCreatingFolder}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleCreateFolder}
+                      disabled={isCreatingFolder || !newFolderName.trim()}
+                      className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isCreatingFolder ? "Creating..." : "Create Folder"}
+                    </button>
                   </div>
                 </div>
-              )}
+              </motion.div>
+            </div>
+          )}
 
-              {/* Attach Documents */}
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Attach Documents</label>
-                {/* Existing dropzone and file input UI below */}
-                <div
-                  {...getRootProps()}
-                  onDropCapture={handleDropCapture}
-                  onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
-                  onDragEnter={e => { e.preventDefault(); e.stopPropagation(); }}
-                  className={
-                    `border-2 border-dashed rounded-lg p-6 text-center transition-all duration-200 cursor-pointer min-h-[220px] flex flex-col justify-center items-center ` +
-                    (isDragActive ? 'border-blue-400 bg-blue-50' : 'border-gray-300 bg-gray-50')
-                  }
-                >
+          {/* Rename Modal */}
+          {showRenameModal && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className="bg-white rounded-lg p-6 w-full max-w-md mx-4"
+              >
+                <div className="mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                    Rename {renameItem?.isFolder ? 'Folder' : 'File'}
+                  </h3>
+                  <p className="text-sm text-gray-600 mb-4">
+                    Enter a new name for &quot;{renameItem?.name}&quot;
+                  </p>
+                  
                   <input
-                    id="dropzone-input"
-                    style={{ display: 'none' }}
-                    {...(getInputProps() as any)}
-                    {...(typeof window !== 'undefined' ? { webkitdirectory: "true", directory: "true" } : {})}
+                    type="text"
+                    value={newItemName}
+                    onChange={(e) => setNewItemName(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
+                    placeholder="Enter new name..."
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        handleRenameItem();
+                      } else if (e.key === 'Escape') {
+                        handleCloseRenameModal();
+                      }
+                    }}
+                    autoFocus
                   />
-                  <HiUpload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                  {isDragActive ? (
-                    <p className="text-blue-600 font-medium">Drop the files here...</p>
-                  ) : showFolderDropWarning ? (
-                    <div className="flex flex-col items-center justify-center h-full">
-                      <label
-                        htmlFor="dropzone-input"
-                        className="mt-2 px-4 py-2 bg-blue-600 text-white rounded font-semibold hover:bg-blue-700 transition-colors cursor-pointer"
-                      >
-                        Browse folders here
-                      </label>
-                      <p className="text-xs text-gray-400 mt-2">To upload a folder with its structure, use the browse button and select a folder.</p>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={handleCloseRenameModal}
+                    className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                    disabled={isRenaming}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleRenameItem}
+                    disabled={isRenaming || !newItemName.trim() || newItemName === renameItem?.name}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isRenaming ? "Renaming..." : "Rename"}
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+
+          {/* Context Menu */}
+          {contextMenu && (
+            <div
+              className="fixed z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-48"
+              style={{
+                left: contextMenu.x,
+                top: contextMenu.y,
+              }}
+            >
+              <button
+                onClick={handleContextMenuDelete}
+                className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2 text-red-600"
+              >
+                <HiTrash className="w-4 h-4" />
+                Delete
+              </button>
+              <button
+                onClick={handleContextMenuRename}
+                className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2 text-black"
+              >
+                <HiPencil className="w-4 h-4" />
+                Rename
+              </button>
+              <div className="border-t border-gray-200 my-1"></div>
+              <button
+                onClick={handleContextMenuCopy}
+                className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2 text-black"
+              >
+                <HiClipboardCopy className="w-4 h-4" />
+                Copy
+              </button>
+              <button
+                onClick={handleContextMenuCut}
+                className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2 text-black"
+              >
+                <HiClipboard className="w-4 h-4" />
+                Cut
+              </button>
+              {clipboard && (
+                <button
+                  onClick={handleContextMenuPaste}
+                  className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2 text-black"
+                >
+                  <HiClipboard className="w-4 h-4" />
+                  Paste
+                </button>
+              )}
+              {contextMenu.type === 'file' && (
+                <>
+                  <div className="border-t border-gray-200 my-1"></div>
+                  <button
+                    onClick={handleContextMenuDownload}
+                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
+                  >
+                    <HiDownload className="w-4 h-4" />
+                    Download
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Click outside to close context menu */}
+          {contextMenu && (
+            <div
+              className="fixed inset-0 z-40"
+              onClick={handleContextMenuClose}
+            />
+          )}
+
+          {/* Preview Modal */}
+          {showPreviewModal && previewFile && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <motion.div
+                className="bg-white rounded-lg shadow-xl w-full max-w-4xl mx-4 max-h-[90vh] overflow-hidden"
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+              >
+                <div className="flex items-center justify-between p-6 border-b border-gray-200">
+                  <h2 className="text-xl font-bold text-gray-800">{previewFile.name}</h2>
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={() => handleFileDownload(previewFile)}
+                      className="bg-blue-600 text-white hover:bg-blue-700 px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 flex items-center gap-1.5"
+                    >
+                      <HiDownload className="w-4 h-4" />
+                      Download
+                    </button>
+                    <button
+                      onClick={() => setShowPreviewModal(false)}
+                      className="text-gray-400 hover:text-gray-600"
+                    >
+                      <HiX className="w-6 h-6" />
+                    </button>
+                  </div>
+                </div>
+                
+                <div className="p-6 overflow-auto max-h-[calc(90vh-120px)]">
+                  {previewFile.type === 'image' && (
+                    <div className="flex justify-center">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img 
+                        src={previewFile.url} 
+                        alt={previewFile.name}
+                        className="max-w-full max-h-[70vh] object-contain rounded-lg shadow-lg"
+                        onError={(e) => {
+                          e.currentTarget.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgdmlld0JveD0iMCAwIDIwMCAyMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIyMDAiIGhlaWdodD0iMjAwIiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik02MCAxMDBDNjAgODkuNTQ0NyA2OC4wMDAxIDgxIDc4IDgxQzg3Ljk5OTkgODEgOTYgODkuNTQ0NyA5NiAxMDBDOTYgMTEwLjQ1NSA4Ny45OTk5IDExOSA3OCAxMTlDNjguMDAwMSAxMTkgNjAgMTEwLjQ1NSA2MCAxMDBaIiBmaWxsPSIjOUI5QkEwIi8+CjxwYXRoIGQ9Ik0xNDAgMTAwQzE0MCA4OS41NDQ3IDE0OC4wMDEgODEgMTU4IDgxQzE2Ny45OTkgODEgMTc2IDg5LjU0NDcgMTc2IDEwMEMxNzYgMTEwLjQ1NSAxNjcuOTk5IDExOSAxNTggMTE5QzE0OC4wMDEgMTE5IDE0MCAxMTAuNDU1IDE0MCAxMDBaIiBmaWxsPSIjOUI5QkEwIi8+Cjwvc3ZnPgo=';
+                        }}
+                      />
                     </div>
-                  ) : (
-                    <div>
-                      <p className="text-gray-600 font-medium mb-1">Drag and drop files here</p>
-                      <p className="text-sm text-gray-500">or</p>
-                      <label
-                        htmlFor="dropzone-input"
-                        className="text-blue-600 hover:text-blue-700 font-medium cursor-pointer"
+                  )}
+                  
+                  {previewFile.type === 'pdf' && (
+                    <div className="w-full h-[70vh]">
+                      <iframe
+                        src={`${previewFile.url}#toolbar=0`}
+                        className="w-full h-full border-0 rounded-lg"
+                        title={previewFile.name}
+                      />
+                    </div>
+                  )}
+                  
+                  {previewFile.type === 'video' && (
+                    <div className="flex justify-center">
+                      <video 
+                        controls 
+                        className="max-w-full max-h-[70vh] rounded-lg shadow-lg"
+                        src={previewFile.url}
                       >
-                        Browse to upload folders
-                      </label>
-                      <p className="text-xs text-gray-400 mt-1">To upload a folder with its structure, use the browse button and select a folder.</p>
+                        Your browser does not support the video tag.
+                      </video>
+                    </div>
+                  )}
+                  
+                  {previewFile.type === 'audio' && (
+                    <div className="flex justify-center">
+                      <audio 
+                        controls 
+                        className="w-full max-w-md"
+                        src={previewFile.url}
+                      >
+                        Your browser does not support the audio tag.
+                      </audio>
+                    </div>
+                  )}
+                  
+                  {previewFile.type === 'text' && (
+                    <div className="bg-gray-50 p-4 rounded-lg">
+                      <pre className="whitespace-pre-wrap text-sm text-gray-800 font-mono">
+                        {/* Text content will be loaded here */}
+                        Loading text content...
+                      </pre>
                     </div>
                   )}
                 </div>
-              </div>
-
-
-
-              {/* Upload Button */}
-              <button
-                onClick={() => {
-                  console.log('Upload button clicked');
-                  handleUpload();
-                }}
-                disabled={selectedFiles.length === 0}
-                className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
-              >
-                <HiUpload className="w-4 h-4" />
-                <span>Upload Instantly</span>
-              </button>
+              </motion.div>
             </div>
-          </motion.div>
-        </div>
-      )}
-
-      {/* New Folder Modal */}
-      {showNewFolderModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <motion.div
-            className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4"
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-          >
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-gray-800">Create New Folder</h2>
-                <button
-                  onClick={() => setShowNewFolderModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <HiX className="w-6 h-6" />
-                </button>
-              </div>
-
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Folder Name
-                </label>
-                <input
-                  type="text"
-                  value={newFolderName}
-                  onChange={(e) => setNewFolderName(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
-                  placeholder="Enter folder name..."
-                  onKeyPress={(e) => {
-                    if (e.key === 'Enter') {
-                      handleCreateFolder();
-                    }
-                  }}
-                />
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShowNewFolderModal(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                  disabled={isCreatingFolder}
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleCreateFolder}
-                  disabled={isCreatingFolder || !newFolderName.trim()}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isCreatingFolder ? "Creating..." : "Create Folder"}
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        </div>
-      )}
-
-      {/* Context Menu */}
-      {contextMenu && (
-        <div
-          className="fixed z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-48"
-          style={{
-            left: contextMenu.x,
-            top: contextMenu.y,
-          }}
-        >
-          <button
-            onClick={handleContextMenuDelete}
-            className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2 text-red-600"
-          >
-            <HiTrash className="w-4 h-4" />
-            Delete
-          </button>
-          <button
-            onClick={handleContextMenuRename}
-            className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2 text-black"
-          >
-            <HiOutlineDocumentText className="w-4 h-4" />
-            Rename
-          </button>
-          <div className="border-t border-gray-200 my-1"></div>
-          <button
-            onClick={handleContextMenuCopy}
-            className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2 text-black"
-          >
-            <HiClipboardCopy className="w-4 h-4" />
-            Copy
-          </button>
-          <button
-            onClick={handleContextMenuCut}
-            className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2 text-black"
-          >
-            <HiClipboard className="w-4 h-4" />
-            Cut
-          </button>
-          {clipboard && (
-            <button
-              onClick={handleContextMenuPaste}
-              className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2 text-black"
-            >
-              <HiClipboard className="w-4 h-4" />
-              Paste
-            </button>
           )}
-          {contextMenu.type === 'file' && (
-            <>
-              <div className="border-t border-gray-200 my-1"></div>
-              <button
-                onClick={handleContextMenuDownload}
-                className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
-              >
-                <HiDownload className="w-4 h-4" />
-                Download
-              </button>
-            </>
-          )}
-        </div>
-      )}
 
-      {/* Click outside to close context menu */}
-      {contextMenu && (
-        <div
-          className="fixed inset-0 z-40"
-          onClick={handleContextMenuClose}
-        />
-      )}
-
-    </motion.div>
+          {/* Drag and drop visual feedback styles */}
+          <style jsx>{`
+            .drop-zone-active {
+              background-color: rgba(59, 130, 246, 0.1) !important;
+              border-color: rgb(59, 130, 246) !important;
+              border-width: 2px !important;
+            }
+            
+            .dragging {
+              opacity: 0.5;
+              transform: scale(0.95);
+            }
+          `}</style>
+        </motion.div>
+      </div>
+    </div>
   );
 } 

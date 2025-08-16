@@ -208,64 +208,182 @@ const ProfileDetailsModal = ({
 
             {/* Licenses and Certifications */}
             {profileData && (
-              <div className="space-y-4">
+              <div className="space-y-6">
                 <div>
-                  <h4 className="text-lg font-medium text-gray-900 mb-2">Licenses</h4>
+                  <h4 className="text-lg font-medium text-gray-900 mb-3">
+                    Licenses
+                  </h4>
                   {profileData.licenses && profileData.licenses.length > 0 ? (
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                       {profileData.licenses.map((license: any) => (
-                        <div key={license.id} className="border rounded-lg p-3">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="font-medium text-gray-900">{license.name}</p>
-                              <p className="text-sm text-gray-600">#{license.number}</p>
-                            </div>
-                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                        <div key={license.id} className="border rounded-lg p-4 bg-white shadow-sm relative">
+                          {/* Status indicator in top right corner */}
+                          <div className="absolute top-3 right-3">
+                            <div className={`w-4 h-4 rounded-full flex items-center justify-center ${
                               getExpirationStatus(license.expiryDate) === 'valid' 
-                                ? 'bg-green-100 text-green-800'
+                                ? 'bg-green-500'
                                 : getExpirationStatus(license.expiryDate) === 'expiring-soon'
-                                ? 'bg-yellow-100 text-yellow-800'
-                                : 'bg-red-100 text-red-800'
+                                ? 'bg-yellow-500'
+                                : 'bg-red-500'
                             }`}>
-                              {getExpirationStatus(license.expiryDate) === 'valid' ? 'Valid' : 
-                               getExpirationStatus(license.expiryDate) === 'expiring-soon' ? 'Expiring Soon' : 'Expired'}
-                            </span>
+                              {getExpirationStatus(license.expiryDate) === 'valid' && (
+                                <HiCheck className="w-2.5 h-2.5 text-white" />
+                              )}
+                              {getExpirationStatus(license.expiryDate) === 'expiring-soon' && (
+                                <HiClock className="w-2.5 h-2.5 text-white" />
+                              )}
+                              {getExpirationStatus(license.expiryDate) === 'expired' && (
+                                <HiX className="w-2.5 h-2.5 text-white" />
+                              )}
+                            </div>
                           </div>
+                          
+                          {/* First row: Driver's License | Issue Date | Expiry Date */}
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm mb-3">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-500 mb-1">Driver's License</label>
+                              <p className="text-gray-900 font-medium">{license.name}</p>
+                            </div>
+                            {(license.issuedDate || license.issuedDateNotSpecified) && (
+                              <div>
+                                <label className="block text-xs font-medium text-gray-500 mb-1">Issue Date</label>
+                                <p className="text-gray-900 font-medium">
+                                  {license.issuedDateNotSpecified ? 'Not Specified' : license.issuedDate}
+                                </p>
+                              </div>
+                            )}
+                            {(license.expiryDate || license.expiryDateNotSpecified) && (
+                              <div>
+                                <label className="block text-xs font-medium text-gray-500 mb-1">Expiry Date</label>
+                                <p className="text-gray-900 font-medium">
+                                  {license.expiryDateNotSpecified ? 'Not Specified' : license.expiryDate}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* Second row: Number | Class | Issuing Authority */}
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                            {license.number && (
+                              <div>
+                                <label className="block text-xs font-medium text-gray-500 mb-1">Number</label>
+                                <p className="text-gray-900 font-medium">{license.number}</p>
+                              </div>
+                            )}
+                            {license.class && (
+                              <div>
+                                <label className="block text-xs font-medium text-gray-500 mb-1">Class</label>
+                                <p className="text-gray-900 font-medium">{license.class}</p>
+                              </div>
+                            )}
+                            {license.issuingAuthority && (
+                              <div>
+                                <label className="block text-xs font-medium text-gray-500 mb-1">Issuing Authority</label>
+                                <p className="text-gray-900 font-medium">{license.issuingAuthority}</p>
+                              </div>
+                            )}
+                          </div>
+                          
+                          {license.notes && (
+                            <div className="mt-3 pt-3 border-t border-gray-200">
+                              <label className="block text-xs font-medium text-gray-500 mb-1">Notes</label>
+                              <p className="text-gray-900 text-sm">{license.notes}</p>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <p className="text-gray-500">No licenses found</p>
+                    <p className="text-gray-500 italic">No licenses found</p>
                   )}
                 </div>
 
                 <div>
-                  <h4 className="text-lg font-medium text-gray-900 mb-2">Certifications</h4>
+                  <h4 className="text-lg font-medium text-gray-900 mb-3">
+                    Certifications
+                  </h4>
                   {profileData.certifications && profileData.certifications.length > 0 ? (
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                       {profileData.certifications.map((cert: any) => (
-                        <div key={cert.id} className="border rounded-lg p-3">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="font-medium text-gray-900">{cert.name}</p>
-                              <p className="text-sm text-gray-600">#{cert.number}</p>
-                            </div>
-                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                        <div key={cert.id} className="border rounded-lg p-4 bg-white shadow-sm relative">
+                          {/* Status indicator in top right corner */}
+                          <div className="absolute top-3 right-3">
+                            <div className={`w-4 h-4 rounded-full flex items-center justify-center ${
                               getExpirationStatus(cert.expiryDate) === 'valid' 
-                                ? 'bg-green-100 text-green-800'
+                                ? 'bg-green-500'
                                 : getExpirationStatus(cert.expiryDate) === 'expiring-soon'
-                                ? 'bg-yellow-100 text-yellow-800'
-                                : 'bg-red-100 text-red-800'
+                                ? 'bg-yellow-500'
+                                : 'bg-red-500'
                             }`}>
-                              {getExpirationStatus(cert.expiryDate) === 'valid' ? 'Valid' : 
-                               getExpirationStatus(cert.expiryDate) === 'expiring-soon' ? 'Expiring Soon' : 'Expired'}
-                            </span>
+                              {getExpirationStatus(cert.expiryDate) === 'valid' && (
+                                <HiCheck className="w-2.5 h-2.5 text-white" />
+                              )}
+                              {getExpirationStatus(cert.expiryDate) === 'expiring-soon' && (
+                                <HiClock className="w-2.5 h-2.5 text-white" />
+                              )}
+                              {getExpirationStatus(cert.expiryDate) === 'expired' && (
+                                <HiX className="w-2.5 h-2.5 text-white" />
+                              )}
+                            </div>
                           </div>
+                          
+                          {/* First row: Certification Name | Issue Date | Expiry Date */}
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm mb-3">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-500 mb-1">Certification Name</label>
+                              <p className="text-gray-900 font-medium">{cert.name}</p>
+                            </div>
+                            {(cert.issuedDate || cert.issuedDateNotSpecified) && (
+                              <div>
+                                <label className="block text-xs font-medium text-gray-500 mb-1">Issue Date</label>
+                                <p className="text-gray-900 font-medium">
+                                  {cert.issuedDateNotSpecified ? 'Not Specified' : cert.issuedDate}
+                                </p>
+                              </div>
+                            )}
+                            {(cert.expiryDate || cert.expiryDateNotSpecified) && (
+                              <div>
+                                <label className="block text-xs font-medium text-gray-500 mb-1">Expiry Date</label>
+                                <p className="text-gray-900 font-medium">
+                                  {cert.expiryDateNotSpecified ? 'Not Specified' : cert.expiryDate}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* Second row: Number | Class | Issuing Authority */}
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                            {cert.number && (
+                              <div>
+                                <label className="block text-xs font-medium text-gray-500 mb-1">Number</label>
+                                <p className="text-gray-900 font-medium">{cert.number}</p>
+                              </div>
+                            )}
+                            {cert.class && (
+                              <div>
+                                <label className="block text-xs font-medium text-gray-500 mb-1">Class</label>
+                                <p className="text-gray-900 font-medium">{cert.class}</p>
+                              </div>
+                            )}
+                            {cert.issuingAuthority && (
+                              <div>
+                                <label className="block text-xs font-medium text-gray-500 mb-1">Issuing Authority</label>
+                                <p className="text-gray-900 font-medium">{cert.issuingAuthority}</p>
+                              </div>
+                            )}
+                          </div>
+                          
+                          {cert.notes && (
+                            <div className="mt-3 pt-3 border-t border-gray-200">
+                              <label className="block text-xs font-medium text-gray-500 mb-1">Notes</label>
+                              <p className="text-gray-900 text-sm">{cert.notes}</p>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <p className="text-gray-500">No certifications found</p>
+                    <p className="text-gray-500 italic">No certifications found</p>
                   )}
                 </div>
               </div>
@@ -301,7 +419,7 @@ export default function TeamMembersPage() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [sortMode, setSortMode] = useState<'hierarchy' | 'valid' | 'expired'>('hierarchy');
   const [showCertSortMenu, setShowCertSortMenu] = useState(false);
-  const [activeSortBy, setActiveSortBy] = useState<'none' | 'company' | 'status' | 'valid' | 'expired'>('none');
+  const [activeSortBy, setActiveSortBy] = useState<'none' | 'company' | 'status' | 'valid' | 'expired' | 'hierarchy'>('hierarchy');
   const [companySortDir, setCompanySortDir] = useState<'asc' | 'desc'>('asc');
   const [statusSortPref, setStatusSortPref] = useState<'active' | 'pending' | 'invited'>('active');
   const [licenseFilter, setLicenseFilter] = useState<'all' | 'valid' | 'expiring' | 'expired'>('all');
@@ -399,17 +517,28 @@ export default function TeamMembersPage() {
           
           if (userProfile) {
             // Determine role based on position or default to admin
-            let role = 'technician'; // default to field staff
-            if (userProfile.position) {
+            let role = 'admin'; // default to admin for current user
+            
+            // Special case for Chris Hart - always admin but keep position as electrician
+            if (userProfile.fullName?.toLowerCase().includes('chris hart') || 
+                userProfile.fullName?.toLowerCase().includes('christopher hart') ||
+                userProfile.email?.toLowerCase().includes('chris') ||
+                userProfile.email?.toLowerCase().includes('hart')) {
+              role = 'admin';
+            } else if (userProfile.position) {
               const position = userProfile.position.toLowerCase();
-              if (position.includes('admin') || position.includes('manager') || position.includes('director') || position.includes('supervisor') || position.includes('coordinator')) {
+              // Enhanced position-to-role mapping
+              if (position.includes('admin') || position.includes('manager') || position.includes('director') || position.includes('supervisor') || position.includes('coordinator') || position.includes('lead') || position.includes('head')) {
                 role = 'admin';
-              } else if (position.includes('engineer') || position.includes('editor') || position.includes('designer') || position.includes('architect') || position.includes('consultant')) {
+              } else if (position.includes('engineer') || position.includes('editor') || position.includes('designer') || position.includes('architect') || position.includes('consultant') || position.includes('analyst') || position.includes('specialist')) {
                 role = 'engineer'; // Maps to "Editor" in display
-              } else if (position.includes('technician') || position.includes('worker') || position.includes('operator') || position.includes('specialist') || position.includes('assistant') || position.includes('electrician') || position.includes('plumber') || position.includes('carpenter') || position.includes('mechanic')) {
-                role = 'technician'; // Maps to "Field Staff" in display
-              } else if (position.includes('viewer') || position.includes('client') || position.includes('guest')) {
+              } else if (position.includes('technician') || position.includes('worker') || position.includes('operator') || position.includes('assistant') || position.includes('electrician') || position.includes('plumber') || position.includes('carpenter') || position.includes('mechanic') || position.includes('technician') || position.includes('installer') || position.includes('maintenance')) {
+                role = 'technician'; // Maps to "Field Worker" in display
+              } else if (position.includes('viewer') || position.includes('client') || position.includes('guest') || position.includes('observer') || position.includes('read-only')) {
                 role = 'viewer';
+              } else {
+                // Default to admin for positions that don't match specific patterns
+                role = 'admin';
               }
             }
 
@@ -448,10 +577,19 @@ export default function TeamMembersPage() {
             role: 'admin' as const,
             status: 'active' as const,
             joinedAt: new Date().toISOString(),
-            position: 'Administrator',
+            position: 'Electrician',
             company: 'thinkcompl.ai',
             photoURL: user.photoURL || undefined
           };
+
+          // Special case for Chris Hart - always admin but keep position as electrician
+          if (user.displayName?.toLowerCase().includes('chris hart') || 
+              user.displayName?.toLowerCase().includes('christopher hart') ||
+              user.email?.toLowerCase().includes('chris') ||
+              user.email?.toLowerCase().includes('hart')) {
+            currentUserMember.role = 'admin';
+            currentUserMember.position = 'Electrician';
+          }
 
           const existingIndex = allTeamMembers.findIndex((member: TeamMember) => member.email === user.email);
           if (existingIndex >= 0) {
@@ -1110,6 +1248,15 @@ export default function TeamMembersPage() {
         const sorted = [...list].sort((a, b) => rank(b.status) - rank(a.status));
         return sorted;
       }
+      if (activeSortBy === 'hierarchy') {
+        // Sort by hierarchy: admin -> engineer -> technician -> viewer
+        const roleOrder = { 'admin': 4, 'engineer': 3, 'technician': 2, 'viewer': 1 };
+        return [...list].sort((a, b) => {
+          const roleA = roleOrder[a.role as keyof typeof roleOrder] || 0;
+          const roleB = roleOrder[b.role as keyof typeof roleOrder] || 0;
+          return roleB - roleA; // Higher roles first
+        });
+      }
       const sorted = [...list].sort((a, b) => {
         const va = getMemberMetric(a);
         const vb = getMemberMetric(b);
@@ -1118,7 +1265,18 @@ export default function TeamMembersPage() {
       });
       return sorted;
     }
-    if (sortKey === 'none') return list;
+    
+    // Default to hierarchy sorting if no specific sort is selected
+    if (sortKey === 'none') {
+      // Sort by hierarchy: admin -> engineer -> technician -> viewer
+      const roleOrder = { 'admin': 4, 'engineer': 3, 'technician': 2, 'viewer': 1 };
+      return [...list].sort((a, b) => {
+        const roleA = roleOrder[a.role as keyof typeof roleOrder] || 0;
+        const roleB = roleOrder[b.role as keyof typeof roleOrder] || 0;
+        return roleB - roleA; // Higher roles first
+      });
+    }
+    
     const sorted = [...list].sort((a, b) => {
       const va = getMemberMetric(a);
       const vb = getMemberMetric(b);
@@ -1261,21 +1419,6 @@ export default function TeamMembersPage() {
     }
   };
 
-  const getRoleLabel = (role: string) => {
-    switch (role) {
-      case 'admin':
-        return 'Administrator';
-      case 'engineer':
-        return 'Editor';
-      case 'technician':
-        return 'Field Worker';
-      case 'viewer':
-        return 'Viewer';
-      default:
-        return role;
-    }
-  };
-
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'active':
@@ -1338,6 +1481,21 @@ export default function TeamMembersPage() {
         return 'bg-slate-600';
       default:
         return 'bg-gray-400';
+    }
+  };
+
+  const getRoleLabel = (role: string) => {
+    switch (role) {
+      case 'admin':
+        return 'Administrator';
+      case 'engineer':
+        return 'Editor';
+      case 'technician':
+        return 'Field Worker';
+      case 'viewer':
+        return 'Viewer';
+      default:
+        return role;
     }
   };
 
@@ -1577,7 +1735,7 @@ export default function TeamMembersPage() {
                 </table>
               </div>
             ) : (
-              <TeamHierarchy teamMembers={teamMembers} invites={invites} />
+              <TeamHierarchy teamMembers={teamMembers} invites={invites} onMemberClick={handleMemberClick} />
             )}
           </div>
         </div>

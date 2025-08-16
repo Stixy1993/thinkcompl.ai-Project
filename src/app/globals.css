@@ -8,6 +8,8 @@
   --background-end-rgb: 255, 255, 255;
 }
 
+
+
 @media (prefers-color-scheme: dark) {
   :root {
     --foreground-rgb: 255, 255, 255;
@@ -76,4 +78,22 @@ body {
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background-color: #2563EB;
+}
+
+/* Smooth scaling without jumping */
+html {
+  transition: font-size 0.3s ease;
+}
+
+/* Prevent extreme scaling on very small or large screens */
+@media screen and (max-width: 200px) {
+  html {
+    font-size: 8px;
+  }
+}
+
+@media screen and (min-width: 4000px) {
+  html {
+    font-size: 32px;
+  }
 }

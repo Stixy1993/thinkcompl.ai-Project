@@ -41,8 +41,8 @@ export default function DashboardPage() {
         window.location.href = '/setup-sharepoint';
         break;
       case 2:
-        // Navigate to team setup (you can create this page later)
-        alert('Team setup feature coming soon!');
+        // Navigate to team members page
+        window.location.href = '/dashboard/team-members';
         break;
       case 3:
         // Navigate to AI features

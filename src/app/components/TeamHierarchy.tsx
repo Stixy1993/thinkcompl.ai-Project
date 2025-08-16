@@ -23,9 +23,10 @@ interface TeamMember {
 interface TeamHierarchyProps {
   teamMembers: TeamMember[];
   invites: TeamMember[];
+  onMemberClick?: (member: TeamMember) => void;
 }
 
-const TeamHierarchy: React.FC<TeamHierarchyProps> = ({ teamMembers, invites }) => {
+const TeamHierarchy: React.FC<TeamHierarchyProps> = ({ teamMembers, invites, onMemberClick }) => {
   const allMembers = [...teamMembers, ...invites];
   
   const getRoleColor = (role: string) => {
@@ -115,7 +116,8 @@ const TeamHierarchy: React.FC<TeamHierarchyProps> = ({ teamMembers, invites }) =
                   key={member.id}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="bg-white rounded-lg shadow-lg p-4 min-w-[200px] border border-gray-200"
+                  className={`bg-white rounded-lg shadow-lg p-4 min-w-[200px] border border-gray-200 ${onMemberClick ? 'cursor-pointer hover:shadow-xl transition-shadow duration-200' : ''}`}
+                  onClick={() => onMemberClick && onMemberClick(member)}
                 >
                   <div className="flex items-center space-x-4">
                     {/* Left Side - Initials Circle and Status */}
@@ -171,7 +173,8 @@ const TeamHierarchy: React.FC<TeamHierarchyProps> = ({ teamMembers, invites }) =
                   key={member.id}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="bg-white rounded-lg shadow-md p-3 min-w-[180px] border border-gray-200"
+                  className={`bg-white rounded-lg shadow-md p-3 min-w-[180px] border border-gray-200 ${onMemberClick ? 'cursor-pointer hover:shadow-xl transition-shadow duration-200' : ''}`}
+                  onClick={() => onMemberClick && onMemberClick(member)}
                 >
                   <div className="flex items-center space-x-3">
                     {/* Left Side - Initials Circle and Status */}
@@ -227,7 +230,8 @@ const TeamHierarchy: React.FC<TeamHierarchyProps> = ({ teamMembers, invites }) =
                   key={member.id}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="bg-white rounded-lg shadow-md p-3 min-w-[160px] border border-gray-200"
+                  className={`bg-white rounded-lg shadow-md p-3 min-w-[160px] border border-gray-200 ${onMemberClick ? 'cursor-pointer hover:shadow-xl transition-shadow duration-200' : ''}`}
+                  onClick={() => onMemberClick && onMemberClick(member)}
                 >
                   <div className="flex items-center space-x-3">
                     {/* Left Side - Initials Circle and Status */}
@@ -286,7 +290,8 @@ const TeamHierarchy: React.FC<TeamHierarchyProps> = ({ teamMembers, invites }) =
                 key={member.id}
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
-                className="bg-white rounded-lg shadow-md p-3 min-w-[160px] border border-gray-200"
+                className={`bg-white rounded-lg shadow-md p-3 min-w-[160px] border border-gray-200 ${onMemberClick ? 'cursor-pointer hover:shadow-xl transition-shadow duration-200' : ''}`}
+                onClick={() => onMemberClick && onMemberClick(member)}
               >
                 <div className="flex items-center space-x-3">
                   {/* Left Side - Initials Circle and Status */}

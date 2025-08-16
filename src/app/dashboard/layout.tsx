@@ -66,30 +66,32 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+
+
   return (
     <div className="flex h-screen bg-blue-400 overflow-hidden">
       {/* Sidebar - Fixed */}
       <aside
-        className={`fixed left-0 top-0 bottom-0 flex flex-col pt-6 pb-0 px-2 shadow-lg bg-white border-r border-gray-200 transition-all duration-200 z-30 ${collapsed ? "w-14" : "w-48 px-4"}`}
+        className={`fixed left-0 top-0 bottom-0 flex flex-col shadow-lg bg-white border-r border-gray-200 transition-all duration-200 z-30 ${
+          collapsed ? "w-16" : "w-48"
+        }`}
       >
-        {/* Compl.ai Logo at the top of the sidebar, positioned against the left border */}
-        <div className="flex items-center h-10 -mt-4 mb-4 transition-all duration-200">
-          <div className={`flex items-center gap-2 ${collapsed ? "justify-center w-full" : ""}`}>
-            <Image
-              src="/Compl.ai Logo Black.svg"
-              alt="Compl.ai Logo Black"
-              width={36}
-              height={36}
-              priority
-              className="flex-shrink-0"
-            />
-            {!collapsed && (
-              <span className="text-lg font-bold text-gray-800">Menu</span>
-            )}
-          </div>
+        {/* Logo section */}
+        <div className={`flex items-center p-4 ${collapsed ? "justify-center" : "gap-3"}`}>
+          <Image
+            src="/Compl.ai Logo Black.svg"
+            alt="Compl.ai Logo Black"
+            width={32}
+            height={32}
+            priority
+            className="w-8 h-8"
+          />
+          {!collapsed && (
+            <span className="font-bold text-gray-800 text-lg">Menu</span>
+          )}
         </div>
         
-        {/* Navigation items - take up available space */}
+        {/* Navigation */}
         <nav className="flex-1 space-y-0.5">
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -100,28 +102,50 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <div key={item.label} className="relative group">
                 {item.href ? (
                   <Link href={item.href} legacyBehavior>
-                    <a className={`w-full flex items-center px-2 py-2 rounded-lg text-left text-gray-700 hover:bg-blue-200 transition ${isActive ? "bg-blue-200 font-semibold text-blue-700" : ""} ${collapsed ? "justify-center" : ""}`}>
-                      <div className="flex items-center w-full">
-                        <div className={`flex items-center justify-center flex-shrink-0 ${collapsed ? "w-full" : "w-8"}`}>
-                          <Icon className={`w-8 h-8 ${isActive ? "text-blue-700" : "text-blue-500"}`} />
-                        </div>
-                        {!collapsed && <span className="text-sm ml-2">{item.label}</span>}
+                                        <a 
+                      className={`flex items-center ${collapsed ? "justify-center" : "justify-start"} rounded-lg text-left text-gray-700 transition py-1.5 ${
+                        isActive ? "font-semibold text-blue-700" : ""
+                      }`}
+                    >
+                      <div className={`${collapsed ? "mx-auto" : "ml-4"} ${isActive ? "bg-blue-200 rounded-lg px-1 py-1" : "group-hover:bg-blue-200 rounded-lg px-1 py-1"} flex items-center justify-center flex-shrink-0 transition-all duration-200`}>
+                        <Icon 
+                          className={`${isActive ? "text-blue-700" : "text-blue-500"} w-5 h-5`}
+                        />
                       </div>
+                      {!collapsed && (
+                        <span 
+                          className="ml-2 text-sm font-medium flex-shrink-0 group-hover:max-w-none max-w-[120px] truncate transition-all duration-200 cursor-help group-hover:bg-white group-hover:px-2 group-hover:py-1 group-hover:rounded group-hover:shadow-md group-hover:-my-1"
+                          title={item.label}
+                        >
+                          {item.label}
+                        </span>
+                      )}
                     </a>
                   </Link>
                 ) : (
-                  <button
-                    className={`w-full flex items-center px-2 py-2 rounded-lg text-left text-gray-700 hover:bg-blue-200 transition ${isActive ? "bg-blue-200 font-semibold text-blue-700" : ""} ${collapsed ? "justify-center" : ""}`}
+                                    <button
+                    className={`flex items-center ${collapsed ? "justify-center" : "justify-start"} rounded-lg text-left text-gray-700 transition py-1.5 ${
+                      isActive ? "font-semibold text-blue-700" : ""
+                    }`}
                     disabled={item.label !== "Dashboard"}
                   >
-                    <div className="flex items-center w-full">
-                      <div className={`flex items-center justify-center flex-shrink-0 ${collapsed ? "w-full" : "w-8"}`}>
-                        <Icon className={`w-8 h-8 ${isActive ? "text-blue-700" : "text-blue-500"}`} />
-                      </div>
-                      {!collapsed && <span className="text-sm ml-2">{item.label}</span>}
+                    <div className={`${collapsed ? "mx-auto" : "ml-4"} ${isActive ? "bg-blue-200 rounded-lg px-1 py-1" : "group-hover:bg-blue-200 rounded-lg px-1 py-1"} flex items-center justify-center flex-shrink-0 transition-all duration-200`}>
+                      <Icon 
+                        className={`${isActive ? "text-blue-700" : "text-blue-500"} w-5 h-5`}
+                      />
                     </div>
+                    {!collapsed && (
+                      <span 
+                        className="ml-2 text-sm font-medium flex-shrink-0 group-hover:max-w-none max-w-[120px] truncate transition-all duration-200 cursor-help group-hover:bg-white group-hover:px-2 group-hover:py-1 group-hover:rounded group-hover:shadow-md group-hover:-my-1"
+                        title={item.label}
+                      >
+                        {item.label}
+                      </span>
+                    )}
                   </button>
                 )}
+                
+                {/* Tooltip for collapsed state */}
                 {collapsed && (
                   <span className="absolute left-full top-1/2 -translate-y-1/2 ml-2 px-3 py-1 rounded bg-gray-800/80 text-white text-xs opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-20 transition-opacity duration-200">
                     {item.label}
@@ -132,36 +156,47 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           })}
         </nav>
         
-        {/* Collapse toggle - always at bottom */}
-        <div className="flex-shrink-0 pt-2 pb-2 mt-auto border-t border-gray-200 relative group">
+        {/* Collapse toggle */}
+        <div className="p-3 border-t border-gray-200">
           <button
-            className="w-full flex items-center justify-center bg-blue-200 hover:bg-blue-300 text-blue-700 rounded-lg p-2 shadow transition"
+            className="w-full flex items-center justify-center bg-blue-200 hover:bg-blue-300 text-blue-700 rounded-lg shadow transition p-3"
             onClick={() => setCollapsed((c) => !c)}
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            suppressHydrationWarning
           >
-            {collapsed ? <HiChevronRight className="text-2xl" /> : <HiChevronLeft className="text-2xl" />}
+            {collapsed ? (
+              <HiChevronRight className="w-5 h-5" />
+            ) : (
+              <HiChevronLeft className="w-5 h-5" />
+            )}
           </button>
-          {/* Tooltip for collapse button */}
-          <span className="absolute left-full top-0 -translate-y-1/2 ml-2 px-3 py-1 rounded bg-gray-800/80 text-white text-xs opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-20 transition-opacity duration-200 shadow-lg">
-            {collapsed ? "Expand menu" : "Collapse menu"}
-          </span>
         </div>
       </aside>
 
       {/* Main content area - with margin to account for fixed sidebar */}
-      <div className={`flex-1 flex flex-col ${collapsed ? "ml-14" : "ml-48"} transition-all duration-200`}>
+      <div 
+        className={`flex-1 flex flex-col transition-all duration-200 ${
+          collapsed ? 'ml-16' : 'ml-48'
+        }`}
+      >
         {/* Header - Fixed */}
-        <header className="fixed top-0 right-0 left-0 flex items-center justify-between px-4 py-2 bg-blue-500 shadow-md z-20" style={{ left: collapsed ? '3.5rem' : '12rem', right: '14px' }}>
+        <header 
+          className={`fixed top-0 right-0 flex items-center justify-between px-4 bg-blue-500 shadow-md z-20 transition-all duration-200 ${
+            collapsed ? 'left-16' : 'left-48'
+          }`}
+          style={{ height: '4rem' }}
+        >
           <div className="flex items-center gap-4">
-            <span className="text-2xl font-bold text-white">thinkcompl<span className="text-blue-200">.ai</span></span>
+            <span 
+              className="font-bold text-white text-2xl"
+            >
+              thinkcompl<span className="text-blue-200">.ai</span>
+            </span>
           </div>
           <div className="flex items-center gap-2">
             {/* Stylish Search Icon and Animated Search Box */}
             <div className="relative flex items-center group" ref={searchRef}>
               <button
-                className={`flex items-center justify-center text-white text-2xl transition-all duration-200 rounded-full hover:bg-blue-400 hover:shadow-lg focus:outline-none ${searchOpen ? 'bg-blue-400 shadow-lg' : ''}`}
-                style={{ width: 40, height: 40 }}
+                className="flex items-center justify-center text-white transition-all duration-200 rounded-full hover:bg-blue-400 hover:shadow-lg focus:outline-none w-8 h-8 text-xl"
                 onClick={() => setSearchOpen((v) => !v)}
                 aria-label="Open search"
                 suppressHydrationWarning
@@ -180,17 +215,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   value={searchValue}
                   onChange={e => setSearchValue(e.target.value)}
                   placeholder="Search..."
-                  className="w-full px-5 py-2 bg-white text-gray-900 border-none shadow-lg rounded-full focus:outline-none focus:ring-2 focus:ring-blue-400 text-base transition-all duration-300"
-                  style={{ minWidth: searchOpen ? 200 : 0 }}
+                  className="w-full px-5 py-2 bg-white text-gray-900 border-none shadow-lg rounded-full focus:outline-none focus:ring-2 focus:ring-blue-400 transition-all duration-300 text-base"
+                  style={{ 
+                    minWidth: searchOpen ? 200 : 0 
+                  }}
                 />
               </div>
             </div>
             <div className="relative group">
               <button
-                className={
-                  `flex items-center justify-center text-white text-xl transition-all duration-200 rounded-full hover:bg-blue-400 hover:shadow-lg focus:outline-none`
-                }
-                style={{ width: 40, height: 40 }}
+                className="flex items-center justify-center text-white transition-all duration-200 rounded-full hover:bg-blue-400 hover:shadow-lg focus:outline-none w-8 h-8 text-lg"
                 aria-label="Settings"
                 suppressHydrationWarning
               >
@@ -210,11 +244,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   alt="Profile"
                   width={36}
                   height={36}
-                  className="rounded-full border-2 border-blue-200"
+                  className="rounded-full border-2 border-blue-200 w-8 h-8"
                 />
                 {/* Tooltip for Profile */}
                 <span className="absolute left-1/2 top-full mt-2 -translate-x-1/2 px-3 py-1 rounded bg-gray-800/80 text-white text-xs opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-20 transition-opacity duration-200 shadow-lg">Profile</span>
-                <span className="text-white font-medium">{user.displayName}</span>
+                <span 
+                  className="text-white font-medium text-base"
+                >
+                  {user.displayName}
+                </span>
                 
                 {/* Dropdown Menu */}
                 {profileDropdownOpen && (
@@ -242,13 +280,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 )}
               </div>
             ) : (
-              <span className="text-white font-medium">Not signed in</span>
+              <span 
+                className="text-white font-medium text-base"
+              >
+                Not signed in
+              </span>
             )}
           </div>
         </header>
 
         {/* Main content area - Scrollable */}
-        <div className="flex-1 overflow-y-scroll pt-16 custom-scrollbar">
+        <div 
+          className="flex-1 overflow-y-scroll custom-scrollbar"
+          style={{ paddingTop: '4rem' }}
+        >
           <motion.div
             key={pathname}
             initial={{ opacity: 0, y: 16 }}

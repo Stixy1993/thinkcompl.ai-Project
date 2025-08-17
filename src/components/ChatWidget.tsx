@@ -17,6 +17,13 @@ interface ChatWidgetProps {
   apiEndpoint?: string;
 }
 
+interface TeamMember {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+}
+
 export default function ChatWidget({ fullPage = false, apiEndpoint }: ChatWidgetProps) {
   const [mounted, setMounted] = useState(false);
   const [isOpen, setIsOpen] = useState(fullPage ? true : false);
@@ -25,6 +32,11 @@ export default function ChatWidget({ fullPage = false, apiEndpoint }: ChatWidget
   const [isCreatingNewChat, setIsCreatingNewChat] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [showLoading, setShowLoading] = useState(false);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [activeTeamChat, setActiveTeamChat] = useState<TeamMember | null>(null);
+  const [teamChatMessages, setTeamChatMessages] = useState<{[key: string]: Array<{id: string, role: 'user' | 'assistant', content: string, timestamp: Date}>}>({});
+  const [teamChatInput, setTeamChatInput] = useState('');
   
   const {
     messages: thinkyMessages,
@@ -53,6 +65,98 @@ export default function ChatWidget({ fullPage = false, apiEndpoint }: ChatWidget
 
   useEffect(() => {
     setMounted(true);
+  }, []);
+
+  // Helper functions for team member avatars
+  const getInitials = (name: string) => {
+    return name
+      .split(' ')
+      .map(word => word[0])
+      .join('')
+      .toUpperCase()
+      .substring(0, 2);
+  };
+
+  const getBackgroundColor = (name: string) => {
+    const colors = [
+      'bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-red-500', 
+      'bg-yellow-500', 'bg-indigo-500', 'bg-pink-500', 'bg-teal-500'
+    ];
+    const index = name.length % colors.length;
+    return colors[index];
+  };
+
+  // Fetch team members
+  useEffect(() => {
+    const fetchTeamMembers = async () => {
+      try {
+        const response = await fetch('/api/team-members');
+        const data = await response.json();
+        
+        let members = [];
+        if (data.success && data.teamMembers && data.teamMembers.length > 0) {
+          members = data.teamMembers;
+        }
+        
+        // Add some demo team members to show the stacking effect
+        const demoMembers = [
+          {
+            id: 'john-demo',
+            name: 'John Smith',
+            email: 'john@company.com', 
+            role: 'Project Manager'
+          },
+          {
+            id: 'sarah-demo',
+            name: 'Sarah Johnson',
+            email: 'sarah@company.com',
+            role: 'Quality Engineer'  
+          },
+          {
+            id: 'mike-demo',
+            name: 'Mike Chen',
+            email: 'mike@company.com',
+            role: 'Lead Inspector'
+          },
+          {
+            id: 'emma-demo', 
+            name: 'Emma Davis',
+            email: 'emma@company.com',
+            role: 'Compliance Officer'
+          }
+        ];
+        
+        // Combine real members with demo members
+        const allMembers = [...members, ...demoMembers];
+        setTeamMembers(allMembers);
+        
+      } catch (error) {
+        console.error('Error fetching team members:', error);
+        // Fallback to demo members if API fails
+        setTeamMembers([
+          {
+            id: 'john-demo',
+            name: 'John Smith',
+            email: 'john@company.com', 
+            role: 'Project Manager'
+          },
+          {
+            id: 'sarah-demo',
+            name: 'Sarah Johnson',
+            email: 'sarah@company.com',
+            role: 'Quality Engineer'  
+          },
+          {
+            id: 'mike-demo',
+            name: 'Mike Chen',
+            email: 'mike@company.com',
+            role: 'Lead Inspector'
+          }
+        ]);
+      }
+    };
+
+    fetchTeamMembers();
   }, []);
 
   // Auto-scroll to bottom when new messages arrive or when component mounts
@@ -127,6 +231,62 @@ export default function ChatWidget({ fullPage = false, apiEndpoint }: ChatWidget
   const handleChatButtonClick = () => {
     setIsOpen(true);
     setError(null);
+  };
+
+  const handleTeamMemberClick = (member: TeamMember) => {
+    setActiveTeamChat(member);
+    setIsOpen(false); // Close Thinky chat if open
+    
+    // Initialize chat messages for this member if they don't exist
+    if (!teamChatMessages[member.id]) {
+      setTeamChatMessages(prev => ({
+        ...prev,
+        [member.id]: [
+          {
+            id: '1',
+            role: 'assistant',
+            content: `Hi! I'm ${member.name}. How can I help you with the project today?`,
+            timestamp: new Date()
+          }
+        ]
+      }));
+    }
+  };
+
+  const handleTeamChatSend = () => {
+    if (!teamChatInput.trim() || !activeTeamChat) return;
+    
+    const userMessage = {
+      id: Date.now().toString(),
+      role: 'user' as const,
+      content: teamChatInput.trim(),
+      timestamp: new Date()
+    };
+
+    const assistantMessage = {
+      id: (Date.now() + 1).toString(),
+      role: 'assistant' as const,
+      content: `Thanks for your message! This is a demo response from ${activeTeamChat.name}. In a real implementation, this would connect to a proper chat system.`,
+      timestamp: new Date()
+    };
+
+    setTeamChatMessages(prev => ({
+      ...prev,
+      [activeTeamChat.id]: [
+        ...(prev[activeTeamChat.id] || []),
+        userMessage,
+        assistantMessage
+      ]
+    }));
+
+    setTeamChatInput('');
+  };
+
+  const handleTeamChatKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleTeamChatSend();
+    }
   };
 
   const handleNewChat = async () => {
@@ -366,21 +526,51 @@ export default function ChatWidget({ fullPage = false, apiEndpoint }: ChatWidget
 
   return (
     <>
-      {/* Chat Button */}
-      <button
-        onClick={handleChatButtonClick}
-        className="fixed bottom-6 right-6 w-14 h-14 bg-white rounded-full shadow-xl border-2 border-gray-200 hover:border-blue-300 hover:shadow-2xl flex items-center justify-center z-40 transition-all duration-300 group"
+      {/* Floating Chat Bubbles Area */}
+      <div 
+        className="fixed bottom-6 right-6 z-40"
+        onMouseEnter={() => setIsExpanded(true)}
+        onMouseLeave={() => setIsExpanded(false)}
       >
-        <img 
-          src="/Thinky.png" 
-          alt="Thinky" 
-          className="w-13 h-13 object-cover rounded-full"
-        />
-        {/* Tooltip */}
-        <span className="absolute right-full top-1/2 -translate-y-1/2 mr-2 px-3 py-1 bg-gray-800 text-white text-xs rounded-lg opacity-0 group-hover:opacity-80 transition-opacity duration-200 whitespace-nowrap z-50">
-          Ask Thinky
-        </span>
-      </button>
+        <div className="relative" style={{ minWidth: '60px', minHeight: '300px' }}>
+          {/* Team Member Bubbles */}
+          {teamMembers.map((member, index) => (
+            <div
+              key={member.id}
+              className="absolute bottom-0 right-0 transition-all duration-300 ease-out cursor-pointer"
+              style={{
+                transform: isExpanded 
+                  ? `translateY(-${(index + 1) * 70}px) translateX(0px)` 
+                  : `translateY(-${(index + 1) * 12}px) translateX(0px)`,
+                zIndex: 40 - index
+              }}
+              onClick={() => handleTeamMemberClick(member)}
+            >
+              <div className="relative">
+                <div className={`w-14 h-14 rounded-full border border-gray-300 flex items-center justify-center text-sm font-medium text-white shadow-lg hover:scale-110 transition-transform ${getBackgroundColor(member.name)}`}>
+                  {getInitials(member.name)}
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {/* Thinky - Always on bottom, highest z-index */}
+          <button
+            onClick={handleChatButtonClick}
+            className="absolute bottom-0 right-0 w-14 h-14 bg-white rounded-full shadow-xl border-2 border-gray-200 hover:border-blue-300 hover:shadow-2xl flex items-center justify-center transition-all duration-300 group z-50"
+          >
+            <img 
+              src="/Thinky.png" 
+              alt="Thinky" 
+              className="w-13 h-13 object-cover rounded-full"
+            />
+            {/* Tooltip */}
+            <span className="absolute right-full top-1/2 -translate-y-1/2 mr-2 px-3 py-1 bg-gray-800 text-white text-xs rounded-lg opacity-0 group-hover:opacity-80 transition-opacity duration-200 whitespace-nowrap z-50">
+              Ask Thinky
+            </span>
+          </button>
+        </div>
+      </div>
 
       {/* Regular Chat Window */}
       {isOpen && (
@@ -553,6 +743,84 @@ export default function ChatWidget({ fullPage = false, apiEndpoint }: ChatWidget
                 className="px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white rounded-lg transition-colors"
               >
                 →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Team Member Chat Window */}
+      {activeTeamChat && (
+        <div className="fixed bottom-6 right-6 w-80 h-96 bg-white rounded-lg shadow-xl z-50 flex flex-col">
+          {/* Header */}
+          <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-blue-500 text-white rounded-t-lg">
+            <div className="flex items-center gap-2">
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium text-white ${getBackgroundColor(activeTeamChat.name)}`}>
+                {getInitials(activeTeamChat.name)}
+              </div>
+              <div>
+                <h3 className="font-semibold">{activeTeamChat.name}</h3>
+                <p className="text-xs text-blue-100">{activeTeamChat.role || 'Team Member'}</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setActiveTeamChat(null)}
+              className="text-white hover:text-gray-200 hover:bg-blue-700 transition-colors p-2 rounded-lg"
+              title="Close chat"
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Messages Area */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            {(teamChatMessages[activeTeamChat.id] || []).map((message) => (
+              <div
+                key={message.id}
+                className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'} items-end`}
+              >
+                {message.role === 'assistant' && (
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium text-white mr-2 ${getBackgroundColor(activeTeamChat.name)}`}>
+                    {getInitials(activeTeamChat.name)}
+                  </div>
+                )}
+                <div
+                  className={`max-w-[70%] px-3 py-2 rounded-lg shadow-sm transition-all duration-200 break-words text-sm
+                    ${message.role === 'user'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-white text-gray-800 border border-gray-200'}
+                  `}
+                >
+                  {message.content}
+                </div>
+                {message.role === 'user' && (
+                  <img
+                    src={user?.photoURL || "/user.png"}
+                    alt="User Avatar"
+                    className="w-8 h-8 rounded-full ml-2 border border-gray-300 bg-white object-cover shadow-sm"
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Input Area */}
+          <div className="p-3 border-t border-gray-200">
+            <div className="flex items-center bg-gray-50 rounded-lg p-2">
+              <input
+                type="text"
+                className="flex-1 px-3 py-2 bg-transparent outline-none text-gray-900 text-sm"
+                placeholder={`Message ${activeTeamChat.name}...`}
+                value={teamChatInput}
+                onChange={(e) => setTeamChatInput(e.target.value)}
+                onKeyDown={handleTeamChatKeyPress}
+              />
+              <button
+                onClick={handleTeamChatSend}
+                className="ml-2 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
+                disabled={!teamChatInput.trim()}
+              >
+                Send
               </button>
             </div>
           </div>

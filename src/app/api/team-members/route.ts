@@ -1,6 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { collection, getDocs } from 'firebase/firestore';
+import { initializeApp, getApps } from 'firebase/app';
+import { getFirestore } from 'firebase/firestore';
 
-// Mock data for now - replace with actual database calls
+// Server-side Firebase initialization
+const firebaseConfig = {
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID
+};
+
+let app;
+if (getApps().length === 0) {
+  app = initializeApp(firebaseConfig);
+} else {
+  app = getApps()[0];
+}
+
+const db = getFirestore(app);
+
+// Mock data for fallback - when no real team members exist
 let mockTeamMembers = [
   {
     id: '1',
@@ -88,23 +110,41 @@ let mockInvites = [
 
 export async function GET(request: NextRequest) {
   try {
-    // For now, we'll return the mock data
-    // In a real implementation, you would:
-    // 1. Get the user's authentication token from the request headers
-    // 2. Verify the token with Firebase Admin SDK
-    // 3. Fetch the user's profile data from Firestore
+    console.log('Fetching team members from Firestore...');
     
-    // Return all team members and invites
+    // Load actual team members from Firestore
+    const teamMembersRef = collection(db, 'team-members');
+    const teamMembersSnapshot = await getDocs(teamMembersRef);
+    
+    let realTeamMembers = teamMembersSnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+
+    console.log(`Found ${realTeamMembers.length} team members in Firestore`);
+
+    // If no real team members, fall back to mock data for demo
+    if (realTeamMembers.length === 0) {
+      console.log('No real team members found, using mock data for demo');
+      realTeamMembers = mockTeamMembers;
+    }
+    
+    // Return team members and invites (for now, invites are still mock)
     return NextResponse.json({
-      teamMembers: mockTeamMembers,
-      invites: mockInvites
+      teamMembers: realTeamMembers,
+      invites: mockInvites,
+      source: realTeamMembers.length > 0 ? 'firestore' : 'mock'
     });
   } catch (error) {
-    console.error('Error getting team members:', error);
-    return NextResponse.json(
-      { error: 'Failed to get team members' },
-      { status: 500 }
-    );
+    console.error('Error getting team members from Firestore:', error);
+    
+    // Fallback to mock data if Firestore fails
+    return NextResponse.json({
+      teamMembers: mockTeamMembers,
+      invites: mockInvites,
+      source: 'mock-fallback',
+      error: 'Firestore connection failed'
+    });
   }
 }
 

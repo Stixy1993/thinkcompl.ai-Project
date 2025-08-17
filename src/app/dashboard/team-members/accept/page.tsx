@@ -151,7 +151,7 @@ export default function AcceptInvitationPage() {
             <HiCheckCircle className="w-12 h-12 text-green-500" />
           </div>
           <h1 className="text-2xl font-bold text-center text-gray-900 mb-4">
-            Welcome to ComplAI!
+            Welcome to thinkcompl.ai!
           </h1>
           <p className="text-center text-gray-600 mb-6">
             You have successfully accepted the invitation and joined the team.

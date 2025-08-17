@@ -178,18 +178,22 @@ export default function SharePointSetupPage() {
     if (currentStep === 0) {
       return (
         <div className="space-y-8">
-          <div className="bg-white rounded-lg shadow-lg p-4 space-y-6">
-            <div className="bg-blue-50 p-6 rounded-lg border border-blue-200">
-              <h4 className="font-semibold text-blue-900 mb-3 text-center">Multi-Tenant OAuth2 Authentication</h4>
-                              <p className="text-blue-800 text-sm leading-relaxed text-center">
-                This setup uses <strong>OAuth2 interactive authentication</strong> which allows users from any organization to sign in 
-                with their own Microsoft accounts. No admin pre-configuration is needed - users simply authenticate 
-                through Microsoft&apos;s secure login when they first access SharePoint features. This provides enterprise-grade 
-                security while maintaining ease of use across multiple organizations.
-              </p>
+          <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+            <div className="px-8 py-6 bg-gradient-to-r from-blue-500 to-blue-600 text-center">
+              <h2 className="text-2xl font-bold text-white mb-2">Welcome to Microsoft Integration Setup</h2>
+              <p className="text-blue-100">Configure your Azure app registration for enterprise integration</p>
             </div>
-
-
+            <div className="p-6 space-y-6">
+              <div className="bg-blue-50 p-6 rounded-lg border border-blue-200">
+                <h4 className="font-semibold text-blue-900 mb-3 text-center">What is Azure Active Directory?</h4>
+                <p className="text-blue-800 text-sm leading-relaxed text-center">
+                  Azure Active Directory (Azure AD) is Microsoft's enterprise identity platform that manages user authentication 
+                  and application permissions. By creating an Azure app registration, you're setting up secure access for thinkcompl.ai 
+                  to interact with your Microsoft services using industry-standard OAuth2 authentication. This ensures enterprise-grade 
+                  security while allowing seamless integration with your existing Microsoft tools.
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       );
@@ -201,12 +205,12 @@ export default function SharePointSetupPage() {
       case 'azure-app':
         return (
           <div className="space-y-4">
-            <div className="text-center">
-              <h2 className="text-2xl font-bold text-white mb-1">Create Multi-Tenant Azure App</h2>
-              <p className="text-blue-100 text-lg">Set up an Azure app that works across all organizations</p>
-            </div>
-
-            <div className="bg-white rounded-lg shadow-lg p-4 space-y-3">
+            <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+              <div className="px-8 py-6 bg-gradient-to-r from-blue-500 to-blue-600 text-center">
+                <h2 className="text-2xl font-bold text-white mb-2">Create Multi-Tenant Azure App</h2>
+                <p className="text-blue-100">Set up an Azure app that works across all organizations</p>
+              </div>
+              <div className="p-6 space-y-3">
               <div className="space-y-2">
                 <div className="flex items-start space-x-3">
                   <div className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0">1</div>
@@ -253,18 +257,19 @@ export default function SharePointSetupPage() {
                 </label>
               </div>
             </div>
+            </div>
           </div>
         );
 
       case 'permissions':
         return (
           <div className="space-y-4">
-            <div className="text-center">
-              <h2 className="text-2xl font-bold text-white mb-1">Configure Multi-Tenant Permissions</h2>
-              <p className="text-blue-100 text-lg">Set up permissions for cross-organization access</p>
-            </div>
-
-            <div className="bg-white rounded-lg shadow-lg p-4 space-y-3">
+            <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+              <div className="px-8 py-6 bg-gradient-to-r from-blue-500 to-blue-600 text-center">
+                <h2 className="text-2xl font-bold text-white mb-2">Configure Multi-Tenant Permissions</h2>
+                <p className="text-blue-100">Set up permissions for cross-organization access</p>
+              </div>
+              <div className="p-6 space-y-3">
 
 
               <div className="space-y-2">
@@ -302,12 +307,20 @@ export default function SharePointSetupPage() {
                   <div className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm font-bold">6</div>
                   <div>
                     <p className="font-medium text-gray-900">Add these permissions:</p>
-                    <ul className="mt-1 space-y-1 text-sm text-gray-600">
+                    <ul className="mt-2 space-y-1 text-sm text-gray-600">
                       <li>• <span className="font-bold">Sites.Read.All</span></li>
                       <li>• <span className="font-bold">Sites.ReadWrite.All</span></li>
                       <li>• <span className="font-bold">Files.Read.All</span></li>
                       <li>• <span className="font-bold">Files.ReadWrite.All</span></li>
+                      <li>• <span className="font-bold">Team.ReadBasic.All</span></li>
+                      <li>• <span className="font-bold">Channel.ReadBasic.All</span></li>
+                      <li>• <span className="font-bold">ChannelMessage.Send</span></li>
+                      <li>• <span className="font-bold">Chat.ReadWrite</span></li>
+                      <li>• <span className="font-bold">Calendars.ReadWrite</span></li>
+                      <li>• <span className="font-bold">OnlineMeetings.ReadWrite</span></li>
+                      <li>• <span className="font-bold">Mail.Send</span></li>
                       <li>• <span className="font-bold">User.Read</span></li>
+                      <li>• <span className="font-bold">User.ReadBasic.All</span></li>
                     </ul>
                   </div>
                 </div>
@@ -334,18 +347,19 @@ export default function SharePointSetupPage() {
                 </label>
               </div>
             </div>
+            </div>
           </div>
         );
 
       case 'credentials':
         return (
           <div className="space-y-4">
-            <div className="text-center">
-              <h2 className="text-2xl font-bold text-white mb-1">Get Application Credentials</h2>
-              <p className="text-blue-100 text-lg">Copy your client ID and client secret</p>
-            </div>
-
-            <div className="bg-white rounded-lg shadow-lg p-4 space-y-3">
+            <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+              <div className="px-8 py-6 bg-gradient-to-r from-blue-500 to-blue-600 text-center">
+                <h2 className="text-2xl font-bold text-white mb-2">Get Application Credentials</h2>
+                <p className="text-blue-100">Copy your client ID and client secret</p>
+              </div>
+              <div className="p-6 space-y-3">
 
               <div className="space-y-3">
                 <div className="space-y-1">
@@ -414,7 +428,7 @@ export default function SharePointSetupPage() {
                 </div>
               </div>
 
-
+            </div>
             </div>
           </div>
         );
@@ -422,34 +436,28 @@ export default function SharePointSetupPage() {
       case 'site-info':
         return (
           <div className="space-y-4">
-            <div className="text-center">
-              <h2 className="text-2xl font-bold text-white mb-1">Test OAuth2 Authentication</h2>
-              <p className="text-blue-100 text-lg">Verify the interactive authentication flow works</p>
-            </div>
+            <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+              <div className="px-8 py-6 bg-gradient-to-r from-blue-500 to-blue-600 text-center">
+                <h2 className="text-2xl font-bold text-white mb-2">Test OAuth2 Authentication</h2>
+                <p className="text-blue-100">Verify the interactive authentication flow works</p>
+              </div>
+              <div className="p-6 space-y-3">
 
-            <div className="bg-white rounded-lg shadow-lg p-4 space-y-3">
-
-              <div className="space-y-3">
-                <div className="bg-blue-50 p-4 rounded-lg">
-                  <h4 className="font-semibold text-blue-900 mb-2">How OAuth2 Authentication Works:</h4>
-                  <ul className="text-sm text-blue-700 space-y-1">
-                    <li>• Users click &quot;Connect SharePoint&quot; on the dashboard</li>
-                    <li>• They&apos;re redirected to Microsoft&apos;s secure login page</li>
-                    <li>• After signing in, they grant permissions to thinkcompl.ai</li>
-                    <li>• They&apos;re redirected back with access tokens</li>
-                    <li>• The app can now access their SharePoint files</li>
-                  </ul>
-                </div>
-
-                <div className="flex justify-center">
+              <div className="space-y-4">
+                <div className="text-center">
+                  <p className="text-gray-600 mb-6">
+                    Click the button below to test that your Azure app registration is working correctly.
+                    You'll be redirected to Microsoft's login page to verify the authentication flow.
+                  </p>
+                  
                   <Button
                     onClick={async () => {
                       console.log('Test OAuth2 Flow clicked');
                       console.log('formData.clientId:', formData.clientId);
                       try {
                         // Test the OAuth2 flow by initiating authentication
-                        console.log('Fetching /api/sharepoint/auth...');
-                        const response = await fetch('/api/sharepoint/auth');
+                        console.log('Fetching /api/sharepoint/auth?action=login...');
+                        const response = await fetch('/api/sharepoint/auth?action=login');
                         console.log('Response received:', response);
                         const data = await response.json();
                         console.log('Response data:', data);
@@ -466,25 +474,14 @@ export default function SharePointSetupPage() {
                         alert('Authentication test failed. Please ensure your Azure app registration is properly configured.');
                       }
                     }}
-                    className="w-fit"
+                    className="mx-auto"
                     disabled={!formData.clientId}
                   >
                     Test OAuth2 Flow
                   </Button>
                 </div>
-
-                <div className="bg-green-50 p-3 rounded-lg">
-                  <div className="flex items-center space-x-3">
-                    <HiCheck className="w-5 h-5 text-green-500" />
-                    <div>
-                      <h4 className="font-semibold text-green-900">No Pre-configuration Needed</h4>
-                      <p className="text-green-700 text-sm">
-                        Users from any organization can authenticate without admin setup. Each user grants their own permissions when they first access SharePoint features.
-                      </p>
-                    </div>
-                  </div>
-                </div>
               </div>
+            </div>
             </div>
           </div>
         );
@@ -511,39 +508,91 @@ export default function SharePointSetupPage() {
       <div className="max-w-4xl mx-auto px-4 py-6 pt-24">
         <div className="text-center mb-6">
           <h1 className="text-4xl font-bold text-white mb-3">
-            SharePoint Setup Wizard
+            Microsoft Integration Setup
           </h1>
           <p className="text-xl text-blue-100">
-            Configure your SharePoint integration in a few simple steps with Azure
+            Configure SharePoint, Teams, and Calendar integration with Azure in a few simple steps
           </p>
         </div>
 
         {/* Progress Steps - Only show when not on intro slide */}
         {currentStep > 0 && (
           <div className="mb-4">
-            <div className="flex items-center justify-between mb-3">
-              {steps.map((step, index) => (
-                <div key={step.id} className="flex items-center">
-                  <div className={`flex items-center justify-center w-12 h-12 rounded-full border-2 transition-all duration-300 ${
-                    index <= currentStep - 1 
-                      ? 'bg-white border-white text-blue-600 shadow-lg scale-110' 
-                      : 'bg-blue-300 border-blue-300 text-white'
-                  }`}>
-                                      {index < currentStep - 1 ? (
-                    <HiCheck className="w-6 h-6" />
-                  ) : index === currentStep - 1 && step.id === 'test-connection' && saveSuccess ? (
-                    <HiCheck className="w-6 h-6" />
-                  ) : (
-                    <step.icon className="w-6 h-6" />
-                  )}
-                  </div>
-                  {index < steps.length - 1 && (
-                    <div className={`w-32 h-1 mx-3 rounded-full transition-all duration-300 ${
-                      index < currentStep - 1 ? 'bg-white' : 'bg-blue-300'
-                    }`} />
-                  )}
-                </div>
-              ))}
+            <div className="flex items-center mb-3">
+              {/* Step 1 */}
+              <div className={`flex items-center justify-center w-12 h-12 rounded-full border-2 transition-all duration-300 ${
+                0 <= currentStep - 1 
+                  ? 'bg-white border-white text-blue-600 shadow-lg scale-110' 
+                  : 'bg-blue-300 border-blue-300 text-white'
+              }`}>
+                {0 < currentStep - 1 ? (
+                  <HiCheck className="w-6 h-6" />
+                ) : 0 === currentStep - 1 && steps[0]?.id === 'test-connection' && saveSuccess ? (
+                  <HiCheck className="w-6 h-6" />
+                ) : (
+                  <HiCog className="w-6 h-6" />
+                )}
+              </div>
+              
+              {/* Line 1 */}
+              <div className={`flex-1 h-1 mx-3 rounded-full transition-all duration-300 ${
+                0 < currentStep - 1 ? 'bg-white' : 'bg-blue-300'
+              }`} />
+              
+              {/* Step 2 */}
+              <div className={`flex items-center justify-center w-12 h-12 rounded-full border-2 transition-all duration-300 ${
+                1 <= currentStep - 1 
+                  ? 'bg-white border-white text-blue-600 shadow-lg scale-110' 
+                  : 'bg-blue-300 border-blue-300 text-white'
+              }`}>
+                {1 < currentStep - 1 ? (
+                  <HiCheck className="w-6 h-6" />
+                ) : 1 === currentStep - 1 && steps[1]?.id === 'test-connection' && saveSuccess ? (
+                  <HiCheck className="w-6 h-6" />
+                ) : (
+                  <HiShieldCheck className="w-6 h-6" />
+                )}
+              </div>
+              
+              {/* Line 2 */}
+              <div className={`flex-1 h-1 mx-3 rounded-full transition-all duration-300 ${
+                1 < currentStep - 1 ? 'bg-white' : 'bg-blue-300'
+              }`} />
+              
+              {/* Step 3 */}
+              <div className={`flex items-center justify-center w-12 h-12 rounded-full border-2 transition-all duration-300 ${
+                2 <= currentStep - 1 
+                  ? 'bg-white border-white text-blue-600 shadow-lg scale-110' 
+                  : 'bg-blue-300 border-blue-300 text-white'
+              }`}>
+                {2 < currentStep - 1 ? (
+                  <HiCheck className="w-6 h-6" />
+                ) : 2 === currentStep - 1 && steps[2]?.id === 'test-connection' && saveSuccess ? (
+                  <HiCheck className="w-6 h-6" />
+                ) : (
+                  <HiKey className="w-6 h-6" />
+                )}
+              </div>
+              
+              {/* Line 3 */}
+              <div className={`flex-1 h-1 mx-3 rounded-full transition-all duration-300 ${
+                2 < currentStep - 1 ? 'bg-white' : 'bg-blue-300'
+              }`} />
+              
+              {/* Step 4 */}
+              <div className={`flex items-center justify-center w-12 h-12 rounded-full border-2 transition-all duration-300 ${
+                3 <= currentStep - 1 
+                  ? 'bg-white border-white text-blue-600 shadow-lg scale-110' 
+                  : 'bg-blue-300 border-blue-300 text-white'
+              }`}>
+                {3 < currentStep - 1 ? (
+                  <HiCheck className="w-6 h-6" />
+                ) : 3 === currentStep - 1 && steps[3]?.id === 'test-connection' && saveSuccess ? (
+                  <HiCheck className="w-6 h-6" />
+                ) : (
+                  <HiGlobe className="w-6 h-6" />
+                )}
+              </div>
             </div>
             <div className="flex justify-between">
               {steps.map((step, index) => (

@@ -400,6 +400,8 @@ export default function TeamMembersPage() {
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [invites, setInvites] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
+  const [companyInfo, setCompanyInfo] = useState<any>(null);
+  const [showProfilePrompt, setShowProfilePrompt] = useState(false);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [activeTab, setActiveTab] = useState<'table' | 'visual'>('table');
@@ -495,23 +497,151 @@ export default function TeamMembersPage() {
     return { licExpired, licExpSoon, certExpired, certExpSoon };
   }, [teamMembers, userProfiles]);
 
-  // Load team members on component mount
+  // Load team members and company info on component mount
   useEffect(() => {
     loadTeamMembers();
+    loadCompanyInfo();
   }, [user]);
+
+  // Load company information
+  const loadCompanyInfo = async () => {
+    try {
+      console.log('Loading company info...');
+      const response = await fetch('/api/company/info');
+      console.log('Company info response:', response.status);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Company info data:', data);
+        setCompanyInfo(data.company);
+      } else {
+        console.error('Company info API error:', response.status, response.statusText);
+      }
+    } catch (error) {
+      console.error('Failed to load company info:', error);
+    }
+  };
+
+  // Check if admin needs to complete profile
+  const checkAdminProfileCompletion = (members: TeamMember[]) => {
+    const adminMember = members.find(member => 
+      member.role === 'admin' && (member as any).isCompanyAdmin
+    );
+    
+    if (adminMember && !(adminMember as any).profileComplete) {
+      setShowProfilePrompt(true);
+    }
+  };
+
+  // Handle logo upload with image compression
+  const handleLogoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      showNotification('info', 'Processing logo...');
+      
+      // Compress image to fit Firestore limits (max 800KB as base64)
+      const compressedBase64 = await new Promise<string>((resolve) => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const img = new Image();
+        
+        img.onload = () => {
+          // Calculate new dimensions (max 400px width/height)
+          const maxSize = 400;
+          let { width, height } = img;
+          
+          if (width > height) {
+            if (width > maxSize) {
+              height = (height * maxSize) / width;
+              width = maxSize;
+            }
+          } else {
+            if (height > maxSize) {
+              width = (width * maxSize) / height;
+              height = maxSize;
+            }
+          }
+          
+          canvas.width = width;
+          canvas.height = height;
+          
+          // Draw and compress
+          ctx?.drawImage(img, 0, 0, width, height);
+          
+          // Try different quality levels until under 800KB
+          for (let quality = 0.8; quality >= 0.1; quality -= 0.1) {
+            const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+            if (compressedDataUrl.length < 800000) { // 800KB limit
+              resolve(compressedDataUrl);
+              return;
+            }
+          }
+          
+          // Fallback - very compressed
+          resolve(canvas.toDataURL('image/jpeg', 0.1));
+        };
+        
+        img.src = URL.createObjectURL(file);
+      });
+      
+      showNotification('info', 'Uploading logo...');
+      
+      // Send compressed image to server
+      const response = await fetch('/api/company/profile', {
+        method: 'POST',
+        body: JSON.stringify({ 
+          logoBase64: compressedBase64,
+          fileName: file.name,
+          updateLogoOnly: true 
+        }),
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        showNotification('success', 'Logo uploaded successfully!');
+        // Reload company info to show the new logo
+        loadCompanyInfo();
+      } else {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to upload logo');
+      }
+    } catch (error) {
+      console.error('Logo upload error:', error);
+      showNotification('error', `Failed to upload logo: ${error.message}`);
+    }
+  };
 
   // Load team members on component mount
   const loadTeamMembers = useCallback(async () => {
     try {
       setLoading(true);
       
-      // For now, we'll use mock data since the API might not be set up
+      // Load actual team members from Firestore first
       let allTeamMembers: TeamMember[] = [];
       let allInvites: TeamMember[] = [];
 
-      // Load user's profile data and add it to the team members
-      if (user) {
+      try {
+        // Fetch company-linked team members from Firestore
+        const response = await fetch('/api/team-members');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.teamMembers) {
+            allTeamMembers = data.teamMembers;
+            console.log('Loaded company team members from Firestore:', allTeamMembers);
+          }
+        }
+      } catch (error) {
+        console.log('Could not load company team members from API:', error);
+      }
+
+      // Only load legacy profile data if no real team members found
+      if (user && allTeamMembers.length === 0) {
         try {
+          console.log('No company team members found, loading legacy profile data');
           const { getUserProfile } = await import('@/lib/firebase/firebaseUtils');
           const userProfile = await getUserProfile();
           
@@ -765,6 +895,9 @@ export default function TeamMembersPage() {
       
       setTeamMembers(allTeamMembers);
       setInvites(allInvites);
+      
+      // Check if admin needs to complete profile
+      checkAdminProfileCompletion(allTeamMembers);
       
       // Create mock profile data with licenses and certifications
       const profilesMap: {[key: string]: any} = {};
@@ -1533,6 +1666,101 @@ export default function TeamMembersPage() {
               </button>
             </div>
           </div>
+
+          {/* Company Info & Admin Profile Prompt */}
+          {companyInfo && (
+            <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-4">
+                  <div className="w-12 h-12 rounded-lg border border-gray-200 flex items-center justify-center bg-gray-50">
+                    {companyInfo.logoUrl ? (
+                      <img 
+                        src={companyInfo.logoUrl} 
+                        alt={`${companyInfo.name} logo`}
+                        className="w-12 h-12 object-contain rounded-lg"
+                        onError={(e) => {
+                          console.error('Failed to load company logo');
+                          (e.target as HTMLImageElement).style.display = 'none';
+                        }}
+                      />
+                    ) : (
+                      <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                        <span className="text-blue-600 font-semibold text-sm">
+                          {companyInfo.name?.charAt(0)?.toUpperCase() || 'C'}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-gray-900">{companyInfo.name}</h2>
+                    <p className="text-sm text-gray-600">{companyInfo.industry} • {companyInfo.size}</p>
+                    {!companyInfo.logoUrl && (
+                      <p className="text-xs text-gray-400 mt-1">No logo uploaded</p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <label className="cursor-pointer">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleLogoUpload}
+                      className="hidden"
+                    />
+                    <span className="px-3 py-1 bg-blue-600 text-white rounded text-xs font-medium hover:bg-blue-700 transition-colors">
+                      {companyInfo.logoUrl ? 'Change Logo' : 'Upload Logo'}
+                    </span>
+                  </label>
+                  {companyInfo.website && (
+                    <a 
+                      href={companyInfo.website} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                    >
+                      Visit Website
+                    </a>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Admin Profile Completion Prompt */}
+          {showProfilePrompt && (
+            <div className="bg-gradient-to-r from-blue-50 to-blue-100 border border-blue-200 rounded-lg p-4 mb-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="flex-shrink-0">
+                    <HiUser className="w-6 h-6 text-blue-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-medium text-blue-900">Complete Your Administrator Profile</h3>
+                    <p className="text-sm text-blue-700">
+                      Finish setting up your profile with certifications, licenses, and other details to appear at the top of the team hierarchy.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => setShowProfilePrompt(false)}
+                    className="text-blue-600 hover:text-blue-800 p-1"
+                  >
+                    <HiX className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      // TODO: Open profile completion modal
+                      setShowProfilePrompt(false);
+                    }}
+                    className="px-3 py-1 bg-blue-600 text-white rounded text-xs font-medium hover:bg-blue-700 transition-colors"
+                  >
+                    Complete Profile
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Tabs */}
           <div className="bg-white rounded-lg shadow-lg p-6">

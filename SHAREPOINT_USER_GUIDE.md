@@ -5,7 +5,7 @@ This guide will walk you through connecting ThinkComplAI to your SharePoint in j
 ## 🚀 Quick Start (5 minutes)
 
 ### Option 1: Guided Setup Wizard (Recommended)
-1. **Go to Setup**: Visit `/setup-sharepoint` in your ThinkComplAI app
+1. **Go to Setup**: Visit `/setup-microsoft` in your ThinkComplAI app
 2. **Follow the Wizard**: Complete the 5-step guided setup
 3. **Test Connection**: Verify everything works
 4. **Start Using**: Your documents are now stored in SharePoint!
@@ -91,7 +91,7 @@ If you prefer to set up manually, follow the steps below.
 
 2. **Restart your development server**
 
-3. **Test the connection**: Visit `/setup-sharepoint` and click "Test Connection"
+3. **Test the connection**: Visit `/setup-microsoft` and click "Test Connection"
 
 ## ✅ Verification
 
@@ -142,7 +142,7 @@ If you're currently using Firebase for file storage:
 
 1. **Backup your data**: Export important files from Firebase
 2. **Set up SharePoint**: Follow the setup guide above
-3. **Migrate files**: Use the migration tool in `/setup-sharepoint`
+3. **Migrate files**: Use the migration tool in `/setup-microsoft`
 4. **Update components**: Switch from Firebase to SharePoint APIs
 5. **Test thoroughly**: Ensure all functionality works with SharePoint
 
@@ -171,7 +171,7 @@ SHAREPOINT_SITE_2_DRIVE_ID=drive-id-2
 ## 📞 Support
 
 ### Need Help?
-- **Setup Issues**: Use the guided wizard at `/setup-sharepoint`
+- **Setup Issues**: Use the guided wizard at `/setup-microsoft`
 - **Technical Problems**: Check the troubleshooting section above
 - **Enterprise Support**: Contact your IT administrator
 

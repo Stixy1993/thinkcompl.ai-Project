@@ -143,14 +143,14 @@ export async function POST(request: NextRequest) {
       const emailBody = `
         <html>
           <body>
-            <h2>You've been invited to join ComplAI!</h2>
+            <h2>You've been invited to join thinkcompl.ai!</h2>
             <p>Hello,</p>
-            <p>You've been invited to join our team on ComplAI with the role of <strong>${role.charAt(0).toUpperCase() + role.slice(1)}</strong>.</p>
+            <p>You've been invited to join our team on thinkcompl.ai with the role of <strong>${role.charAt(0).toUpperCase() + role.slice(1)}</strong>.</p>
             ${message ? `<p><strong>Personal message:</strong> ${message}</p>` : ''}
             <p>To accept this invitation, please click the link below:</p>
             <p><a href="${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/dashboard/team-members/accept?invitationId=${invitationId}&email=${encodeURIComponent(email)}" style="background-color: #3B82F6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Accept Invitation</a></p>
             <p>If you have any questions, please contact the team administrator.</p>
-            <p>Best regards,<br>The ComplAI Team</p>
+            <p>Best regards,<br>The thinkcompl.ai Team</p>
           </body>
         </html>
       `;
@@ -182,21 +182,21 @@ export async function POST(request: NextRequest) {
       const emailBody = `
         <html>
           <body>
-            <h2>You've been invited to join ComplAI!</h2>
+            <h2>You've been invited to join thinkcompl.ai!</h2>
             <p>Hello,</p>
-            <p>You've been invited to join our team on ComplAI with the role of <strong>${role.charAt(0).toUpperCase() + role.slice(1)}</strong>.</p>
+            <p>You've been invited to join our team on thinkcompl.ai with the role of <strong>${role.charAt(0).toUpperCase() + role.slice(1)}</strong>.</p>
             ${message ? `<p><strong>Personal message:</strong> ${message}</p>` : ''}
             <p>To accept this invitation, please click the link below:</p>
             <p><a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://thinkcompl.ai'}/dashboard/team-members/accept?invitationId=${invitationId}&email=${encodeURIComponent(email)}" style="background-color: #3B82F6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Accept Invitation</a></p>
             <p>If you have any questions, please contact the team administrator.</p>
-            <p>Best regards,<br>The ComplAI Team</p>
+            <p>Best regards,<br>The thinkcompl.ai Team</p>
           </body>
         </html>
       `;
 
       // Create the email message using Microsoft Graph API
       const emailMessage = {
-        subject: 'Invitation to join ComplAI',
+        subject: 'Invitation to join thinkcompl.ai',
         body: {
           contentType: 'HTML',
           content: emailBody

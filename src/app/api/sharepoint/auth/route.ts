@@ -28,7 +28,28 @@ export async function GET(request: NextRequest) {
     authUrl.searchParams.set('client_id', SHAREPOINT_CLIENT_ID!);
     authUrl.searchParams.set('response_type', 'code');
     authUrl.searchParams.set('redirect_uri', REDIRECT_URI);
-    authUrl.searchParams.set('scope', 'https://graph.microsoft.com/Sites.Read.All https://graph.microsoft.com/Files.ReadWrite.All');
+    // Updated scopes for complete Microsoft integration (SharePoint, Teams, Calendar)
+    const scopes = [
+      // SharePoint & Files
+      'https://graph.microsoft.com/Sites.Read.All',
+      'https://graph.microsoft.com/Sites.ReadWrite.All', 
+      'https://graph.microsoft.com/Files.Read.All',
+      'https://graph.microsoft.com/Files.ReadWrite.All',
+      // Microsoft Teams
+      'https://graph.microsoft.com/Team.ReadBasic.All',
+      'https://graph.microsoft.com/Channel.ReadBasic.All',
+      'https://graph.microsoft.com/ChannelMessage.Send',
+      'https://graph.microsoft.com/Chat.ReadWrite',
+      // Outlook Calendar
+      'https://graph.microsoft.com/Calendars.ReadWrite',
+      'https://graph.microsoft.com/OnlineMeetings.ReadWrite',
+      'https://graph.microsoft.com/Mail.Send',
+      // User & Profile
+      'https://graph.microsoft.com/User.Read',
+      'https://graph.microsoft.com/User.ReadBasic.All'
+    ].join(' ');
+    
+    authUrl.searchParams.set('scope', scopes);
     authUrl.searchParams.set('state', state);
     authUrl.searchParams.set('response_mode', 'query');
     

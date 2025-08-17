@@ -44,6 +44,16 @@ export async function GET(request: NextRequest) {
         { status: 400 }
       );
     }
+    
+    if (!process.env.SHAREPOINT_CLIENT_SECRET) {
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: 'SharePoint configuration incomplete. Please set SHAREPOINT_CLIENT_SECRET environment variable.' 
+        },
+        { status: 400 }
+      );
+    }
 
     // Exchange code for tokens - OAuth2 authorization code flow
     const tokenResponse = await fetch('https://login.microsoftonline.com/common/oauth2/v2.0/token', {

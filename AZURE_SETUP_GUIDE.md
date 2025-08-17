@@ -65,7 +65,7 @@ SHAREPOINT_TENANT_ID=your_tenant_id
 ## Step 6: Test the Integration
 
 1. **Start your development server:** `npm run dev`
-2. **Visit:** `http://localhost:3000/setup-sharepoint`
+2. **Visit:** `http://localhost:3000/setup-microsoft`
 3. **Click "Connect to SharePoint"**
 4. **Sign in with your Microsoft account**
 5. **Grant permissions** when prompted

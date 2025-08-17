@@ -84,7 +84,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             width={32}
             height={32}
             priority
-            className="w-8 h-8"
           />
           {!collapsed && (
             <span className="font-bold text-gray-800 text-lg">Menu</span>

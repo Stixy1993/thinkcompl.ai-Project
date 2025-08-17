@@ -194,7 +194,7 @@ export default function SharePointStatus() {
           {/* Action Buttons */}
           <div className="mt-4 flex space-x-2">
             <a
-              href="/setup-sharepoint"
+              href="/setup-microsoft"
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
             >
               {status.status === 'not_configured' || status.status === 'incomplete' 

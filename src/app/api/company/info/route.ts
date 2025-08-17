@@ -13,36 +13,72 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID
 };
 
+// Singleton Firebase connection (reuse across requests)
 let app;
-if (getApps().length === 0) {
-  app = initializeApp(firebaseConfig);
-} else {
-  app = getApps()[0];
+let db;
+
+function getFirebaseDB() {
+  if (!app) {
+    if (getApps().length === 0) {
+      app = initializeApp(firebaseConfig);
+    } else {
+      app = getApps()[0];
+    }
+    db = getFirestore(app);
+  }
+  return db;
 }
 
-const db = getFirestore(app);
+// In-memory cache for company info
+const companyCache = new Map();
+const CACHE_TTL = 60000; // 1 minute cache for company info
+
+function getCachedCompanyData(key) {
+  const cached = companyCache.get(key);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data;
+  }
+  return null;
+}
+
+function setCachedCompanyData(key, data) {
+  companyCache.set(key, {
+    data,
+    timestamp: Date.now()
+  });
+}
 
 export async function GET(request: NextRequest) {
+  const startTime = Date.now();
+  
   try {
-    console.log('Fetching company info from Firestore...');
+    // Check cache first for instant response
+    const cacheKey = 'company-info';
+    const cachedResult = getCachedCompanyData(cacheKey);
+    if (cachedResult) {
+      console.log(`✅ Company info cache hit in ${Date.now() - startTime}ms`);
+      return NextResponse.json(cachedResult);
+    }
+
+    console.log('🔍 Fetching company info from Firestore...');
     
     // Get the most recent company profile for display purposes
+    const db = getFirebaseDB();
     const companiesRef = collection(db, 'companies');
     const q = query(companiesRef, orderBy('updatedAt', 'desc'), limit(1));
     
-    // Add timeout to prevent hanging
+    // Reduced timeout for faster fail-over
     const querySnapshot = await Promise.race([
       getDocs(q),
       new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Firestore query timeout')), 8000)
+        setTimeout(() => reject(new Error('Firestore query timeout')), 3000)
       )
     ]) as any;
     
     if (!querySnapshot.empty) {
       const companyData = querySnapshot.docs[0].data();
       
-      // Return relevant company info for team display
-      return NextResponse.json({
+      const result = {
         success: true,
         company: {
           name: companyData.name,
@@ -52,19 +88,31 @@ export async function GET(request: NextRequest) {
           address: companyData.address,
           foundedYear: companyData.foundedYear,
           website: companyData.website
-        }
-      });
+        },
+        queryTime: Date.now() - startTime,
+        cached: false
+      };
+      
+      // Cache the successful result
+      setCachedCompanyData(cacheKey, result);
+      
+      console.log(`✅ Company info fetched in ${Date.now() - startTime}ms`);
+      return NextResponse.json(result);
     } else {
-      return NextResponse.json({
+      const notFoundResult = {
         success: false,
-        message: 'No company profile found'
-      }, { status: 404 });
+        message: 'No company profile found',
+        queryTime: Date.now() - startTime
+      };
+      
+      console.log(`⚠️ No company profile found (${Date.now() - startTime}ms)`);
+      return NextResponse.json(notFoundResult, { status: 404 });
     }
   } catch (error) {
-    console.error('Error getting company info:', error);
+    console.error(`❌ Error getting company info (${Date.now() - startTime}ms):`, error);
     
     // Return fallback company data to prevent UI breaking
-    return NextResponse.json({
+    const fallbackResult = {
       success: true,
       company: {
         name: 'Bright Spark Construction',
@@ -82,7 +130,13 @@ export async function GET(request: NextRequest) {
         website: 'www.BSC.com'
       },
       fallback: true,
-      error: 'Using fallback data due to Firestore connection issue'
-    });
+      error: 'Using fallback data due to Firestore connection issue',
+      queryTime: Date.now() - startTime
+    };
+    
+    // Cache fallback data briefly to prevent repeated errors
+    setCachedCompanyData(cacheKey, fallbackResult);
+    
+    return NextResponse.json(fallbackResult);
   }
 }

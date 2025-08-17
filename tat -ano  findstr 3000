@@ -1,0 +1,5 @@
+[33m7800cfe[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mfeature/oauth2-interactive-auth[m[33m)[m Fix sidebar navigation: center icons, truncate text, add hover effects, optimize width from w-56 to w-48
+[33m2a5ae9c[m[33m ([m[1;31morigin/feature/oauth2-interactive-auth[m[33m, [m[1;31morigin-clean/feature/oauth2-interactive-auth[m[33m)[m feat: Add team members functionality and improve SharePoint integration
+[33m87f95b8[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin-clean/main[m[33m, [m[1;31morigin-clean/HEAD[m[33m, [m[1;32mmain[m[33m)[m Add manual SharePoint credentials sign-in and environment troubleshooting - Fix environment file conflicts - Add debug endpoints for configuration testing - Improve error handling for Conditional Access issues
+[33mcd9f9ea[m Update Firebase configuration to use environment variables - Migrate all API routes to use environment variables - Improve security by removing hardcoded credentials - Standardize configuration management across the application
+[33m7ed9c66[m Remove hardcoded Firebase API key - Move all Firebase config to environment variables - Fix GitHub secret detection issue

@@ -60,3 +60,4 @@ export interface ITRInstance {
   equipment?: string;
   data: Record<string, any>;
 }
+

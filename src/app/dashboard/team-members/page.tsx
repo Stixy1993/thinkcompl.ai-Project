@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { HiUserGroup, HiPlus, HiMail, HiUser, HiShieldCheck, HiClock, HiCheckCircle, HiExclamationCircle, HiX, HiViewList, HiChartBar, HiPencil, HiCog, HiEye, HiCheck, HiSortDescending } from 'react-icons/hi';
 import { useAuth } from '@/lib/hooks/useAuth';
 import TeamHierarchy from '@/app/components/TeamHierarchy';
+import { mockTeamMembers, mockInvites, mockUserProfiles } from '@/app/constants/mockTeamData';
 
 interface TeamMember {
   id: string;
@@ -1829,67 +1830,65 @@ export default function TeamMembersPage() {
             {/* Content based on active tab */}
             {activeTab === 'table' ? (
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        MEMBER
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        JOB TITLE
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        COMPANY
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        ROLE
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        STATUS
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        LICENSES
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        <div className="flex items-center justify-between">
-                          <span>CERTIFICATIONS</span>
-                          <div className="flex items-center space-x-2">
-                            <div className="relative">
-                              <button
-                                onClick={() => setShowCertSortMenu(!showCertSortMenu)}
-                                className="flex items-center space-x-1 text-gray-600 hover:text-gray-800 bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded text-xs font-medium transition-colors"
-                              >
-                                <span>Sort by</span>
-                                <HiSortDescending className="w-3 h-3" />
-                              </button>
-                              {showCertSortMenu && (
-                                <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-10 border border-gray-200">
-                                  <div className="py-1">
-                                    {['Hierarchy', 'Company', 'Status', 'Valid', 'Expired'].map((option) => (
-                                      <button
-                                        key={option}
-                                        onClick={() => {
-                                          setActiveSortBy(option.toLowerCase() as any);
-                                          setShowCertSortMenu(false);
-                                        }}
-                                        className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                                      >
-                                        {option}
-                                      </button>
-                                    ))}
+                <div className="max-w-full">
+                  <table className="w-full divide-y divide-gray-200 table-fixed">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th style={{width: '24%'}} className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          MEMBER
+                        </th>
+                        <th style={{width: '16%'}} className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          ROLE
+                        </th>
+                        <th style={{width: '16%'}} className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          JOB TITLE
+                        </th>
+                        <th style={{width: '16%'}} className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          COMPANY
+                        </th>
+                        <th style={{width: '12%'}} className="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          LICENSES
+                        </th>
+                        <th style={{width: '16%'}} className="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          <div className="flex items-center justify-between">
+                            <span>CERTIFICATIONS</span>
+                            <div className="flex items-center space-x-2">
+                              <div className="relative">
+                                <button
+                                  onClick={() => setShowCertSortMenu(!showCertSortMenu)}
+                                  className="flex items-center space-x-1 text-gray-600 hover:text-gray-800 bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded text-xs font-medium transition-colors"
+                                >
+                                  <span>Sort</span>
+                                  <HiSortDescending className="w-3 h-3" />
+                                </button>
+                                {showCertSortMenu && (
+                                  <div className="absolute right-0 mt-2 w-40 bg-white rounded-md shadow-lg z-10 border border-gray-200">
+                                    <div className="py-1">
+                                      {['Hierarchy', 'Company', 'Status', 'Valid', 'Expired'].map((option) => (
+                                        <button
+                                          key={option}
+                                          onClick={() => {
+                                            setActiveSortBy(option.toLowerCase() as any);
+                                            setShowCertSortMenu(false);
+                                          }}
+                                          className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                        >
+                                          {option}
+                                        </button>
+                                      ))}
+                                    </div>
                                   </div>
-                                </div>
-                              )}
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </th>
-                    </tr>
-                  </thead>
+                        </th>
+                      </tr>
+                    </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {sortMembers(filterMembers(teamMembers)).map((member) => (
                       <tr key={member.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => handleMemberClick(member)}>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="px-3 py-4">
                           <div className="flex items-center">
                             <div className="flex-shrink-0 h-10 w-10">
                               {member.photoURL ? (
@@ -1906,51 +1905,52 @@ export default function TeamMembersPage() {
                                 </div>
                               )}
                             </div>
-                            <div className="ml-4">
-                              <div className="text-sm font-medium text-gray-900">
+                            <div className="ml-3 min-w-0 flex-1">
+                              <div className="text-sm font-semibold text-gray-900 truncate">
                                 {member.name || member.email.split('@')[0]}
                               </div>
-                              <div className="text-xs text-gray-500">
+                              <div className="text-xs text-gray-500 truncate">
                                 {member.email}
                               </div>
                             </div>
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900">{member.position || 'N/A'}</div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900">{member.company || 'N/A'}</div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="px-2 py-4">
                           <div className="flex items-center">
                             {getRoleIcon(member.role)}
                             <span className="ml-2 text-sm text-gray-900">{getRoleLabel(member.role)}</span>
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">{getStatusBadge(member.status)}</td>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="px-2 py-4">
+                          <div className="text-sm text-gray-900 truncate">{member.position || 'N/A'}</div>
+                        </td>
+                        <td className="px-2 py-4">
+                          <div className="text-sm text-gray-900 truncate">{member.company || 'N/A'}</div>
+                        </td>
+                        <td className="px-2 py-4">
                           {(() => {
                             const profile = userProfiles[member.email];
                             const licenses = profile?.licenses || [];
                             const licStatus = getOverallStatus(licenses);
                             return (
-                              <div className="flex items-center">
-                                <span className="text-sm text-gray-600">Licenses: <span className="font-semibold text-gray-900">{licenses.length}</span>
+                              <div className="flex items-center justify-center">
+                                <span className="text-sm text-gray-600">
+                                  <span className="font-semibold text-gray-900">{licenses.length}</span>
                                   {licenses.length > 0 && renderStatusIndicator(licStatus)}
                                 </span>
                               </div>
                             );
                           })()}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="px-2 py-4">
                           {(() => {
                             const profile = userProfiles[member.email];
                             const certifications = profile?.certifications || [];
                             const certStatus = getOverallStatus(certifications);
                             return (
-                              <div className="flex items-center">
-                                <span className="text-sm text-gray-600">Certifications: <span className="font-semibold text-gray-900">{certifications.length}</span>
+                              <div className="flex items-center justify-center">
+                                <span className="text-sm text-gray-600">
+                                  <span className="font-semibold text-gray-900">{certifications.length}</span>
                                   {certifications.length > 0 && renderStatusIndicator(certStatus)}
                                 </span>
                               </div>
@@ -1959,8 +1959,9 @@ export default function TeamMembersPage() {
                         </td>
                       </tr>
                     ))}
-                  </tbody>
-                </table>
+                    </tbody>
+                  </table>
+                </div>
               </div>
             ) : (
               <TeamHierarchy teamMembers={teamMembers} invites={invites} onMemberClick={handleMemberClick} />

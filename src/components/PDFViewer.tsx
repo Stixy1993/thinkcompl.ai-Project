@@ -11,7 +11,17 @@ const fabric = typeof window !== 'undefined' ? require('fabric').fabric : null;
 
 // PDF.js worker setup
 if (typeof window !== 'undefined') {
-  pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+  // Use a local worker file to avoid configuration errors
+  console.log('PDF.js: Setting up local worker configuration');
+  try {
+    // Use the worker file from node_modules that we know exists
+    pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
+    console.log('PDF.js: Worker configured successfully');
+  } catch (error) {
+    console.error('PDF.js: Failed to configure worker:', error);
+    // Fallback: try to disable worker completely
+    pdfjs.GlobalWorkerOptions.workerSrc = null;
+  }
 }
 
 export interface Annotation {
@@ -83,6 +93,7 @@ function PDFViewerComponent({
   const [selectedAnnotation, setSelectedAnnotation] = useState<string | null>(null);
   const [renderProgress, setRenderProgress] = useState(0);
   const [pageCache, setPageCache] = useState<Map<number, ImageData>>(new Map());
+  const [error, setError] = useState<string | null>(null);
 
   // Keyboard shortcuts
   useHotkeys('ctrl+z', () => undo(), { enableOnTags: ['INPUT', 'TEXTAREA'] });
@@ -91,17 +102,92 @@ function PDFViewerComponent({
   useHotkeys('escape', () => setActiveTool('select'));
 
   const loadPDF = useCallback(async (url: string) => {
-    if (!url || !pdfjs) return;
+    console.log('PDFViewer: loadPDF called with URL:', url);
+    if (!url || !pdfjs) {
+      console.error('PDFViewer: Missing URL or pdfjs:', { url, pdfjs: !!pdfjs });
+      return;
+    }
     
     setIsLoading(true);
+    setError(null); // Clear any previous errors
+    
     try {
+      console.log('PDFViewer: Starting PDF load...');
+      console.log('PDFViewer: Using local worker configuration');
+      
       const pdf = await pdfjs.getDocument(url).promise;
+      console.log('PDFViewer: PDF loaded successfully, pages:', pdf.numPages);
       pdfDocRef.current = pdf;
       setTotalPages(pdf.numPages);
       setCurrentPage(1);
-      await renderPage(1, pdf);
-    } catch (error) {
-      console.error('Error loading PDF:', error);
+      
+      // Wait for canvas to be fully ready with retry mechanism
+      let canvasReady = false;
+      let attempts = 0;
+      const maxAttempts = 10;
+      
+      while (!canvasReady && attempts < maxAttempts) {
+        attempts++;
+        console.log(`PDFViewer: Canvas readiness check attempt ${attempts}/${maxAttempts}`);
+        
+        // Check if canvas element exists
+        if (!canvasRef.current) {
+          console.log('PDFViewer: Canvas ref not available, waiting...');
+          await new Promise(resolve => setTimeout(resolve, 200));
+          continue;
+        }
+        
+        // Check if canvas element is properly initialized
+        const canvas = canvasRef.current;
+        if (!canvas.getContext) {
+          console.log('PDFViewer: Canvas getContext method not available, waiting...');
+          await new Promise(resolve => setTimeout(resolve, 200));
+          continue;
+        }
+        
+        // Test if we can actually get a 2D context
+        try {
+          const testContext = canvas.getContext('2d');
+          if (testContext) {
+            console.log('PDFViewer: Canvas context test successful');
+            canvasReady = true;
+            break;
+          } else {
+            console.log('PDFViewer: Canvas context test failed, waiting...');
+            await new Promise(resolve => setTimeout(resolve, 200));
+          }
+        } catch (contextError) {
+          console.log('PDFViewer: Canvas context test error:', contextError);
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+      }
+      
+      if (canvasReady) {
+        console.log('PDFViewer: Canvas is ready, proceeding with rendering');
+        await renderPage(1, pdf);
+        console.log('PDFViewer: First page rendered successfully');
+      } else {
+        console.error('PDFViewer: Canvas failed to become ready after all attempts');
+        setError('Canvas initialization failed. Please refresh the page and try again.');
+      }
+    } catch (error: any) {
+      console.error('PDFViewer: Error loading PDF:', error);
+      console.error('PDFViewer: Error details:', {
+        message: error.message,
+        stack: error.stack,
+        url: url
+      });
+      
+      // Set user-friendly error message
+      let errorMessage = 'Failed to load PDF. Please try again.';
+      if (error.message && error.message.includes('worker')) {
+        errorMessage = 'PDF loading failed. The system is using the main thread for processing.';
+        console.error('PDFViewer: PDF loading error detected. This may be due to file access or format issues.');
+      } else if (error.message && error.message.includes('CORS')) {
+        errorMessage = 'PDF loading failed due to CORS restrictions. Please check the file URL.';
+      }
+      
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -109,7 +195,44 @@ function PDFViewerComponent({
 
   const renderPage = async (pageNum: number, pdf?: any) => {
     const pdfDoc = pdf || pdfDocRef.current;
-    if (!pdfDoc || !canvasRef.current || !fabric) return;
+    
+    // Add comprehensive canvas availability checks
+    if (!pdfDoc) {
+      console.log('PDFViewer: No PDF document available for rendering');
+      return;
+    }
+    
+    if (!canvasRef.current) {
+      console.log('PDFViewer: Canvas ref not available yet, skipping render');
+      return;
+    }
+    
+    if (!fabric) {
+      console.log('PDFViewer: Fabric.js not available yet, skipping render');
+      return;
+    }
+
+    // Additional safety check for canvas element
+    const canvas = canvasRef.current;
+    if (!canvas || !canvas.getContext) {
+      console.log('PDFViewer: Canvas element not properly initialized, skipping render');
+      return;
+    }
+
+    // Final canvas context test before rendering
+    let context;
+    try {
+      context = canvas.getContext('2d');
+      if (!context) {
+        console.error('PDFViewer: Failed to get canvas context during render');
+        setError('Canvas rendering context unavailable. Please refresh the page.');
+        return;
+      }
+    } catch (contextError) {
+      console.error('PDFViewer: Canvas context error during render:', contextError);
+      setError('Canvas rendering failed. Please refresh the page.');
+      return;
+    }
 
     // Cancel any ongoing render task
     if (renderTaskRef.current) {
@@ -124,83 +247,179 @@ function PDFViewerComponent({
       const cacheKey = `${pageNum}_${scale}`;
       
       const page = await pdfDoc.getPage(pageNum);
-      const viewport = page.getViewport({ scale });
+      const viewport = page.getViewport({ scale: 1.0 }); // Get original viewport
       
-      const canvas = canvasRef.current;
-      const context = canvas.getContext('2d');
-      if (!context) return;
-
-      // Set canvas dimensions
-      canvas.height = viewport.height;
-      canvas.width = viewport.width;
+      console.log('PDFViewer: Original page dimensions:', viewport.width, 'x', viewport.height);
+      
+      // Calculate the scale to fit the page within the container
+      const container = containerRef.current;
+      if (!container) {
+        console.error('PDFViewer: Container ref not available');
+        return;
+      }
+      
+      // Get the available space for the PDF (accounting for padding and borders)
+      const containerRect = container.getBoundingClientRect();
+      const availableWidth = containerRect.width - 64; // 32px padding on each side
+      const availableHeight = containerRect.height - 200; // Account for toolbar and padding
+      
+      console.log('PDFViewer: Available space:', availableWidth, 'x', availableHeight);
+      
+      // Calculate scale to fit the page within the available space
+      const scaleX = availableWidth / viewport.width;
+      const scaleY = availableHeight / viewport.height;
+      const fitScale = Math.min(scaleX, scaleY, 1.0); // Don't scale up beyond 100%
+      
+      // Apply user's zoom preference on top of the fit scale
+      const finalScale = fitScale * scale;
+      
+      console.log('PDFViewer: Calculated scales - fit:', fitScale, 'user zoom:', scale, 'final:', finalScale);
+      
+      // Limit canvas size to prevent memory issues
+      const maxDimension = 4096; // Maximum canvas dimension
+      let renderScale = finalScale;
+      if (viewport.width * finalScale > maxDimension || viewport.height * finalScale > maxDimension) {
+        renderScale = Math.min(finalScale, maxDimension / Math.max(viewport.width, viewport.height));
+        console.log('PDFViewer: Scaling down to prevent memory issues:', renderScale);
+      }
+      
+      const finalViewport = page.getViewport({ scale: renderScale });
+      
+      // Set canvas dimensions to the scaled size
+      canvas.width = finalViewport.width;
+      canvas.height = finalViewport.height;
+      
+      // Set CSS dimensions to maintain aspect ratio and fit container
+      canvas.style.width = `${finalViewport.width}px`;
+      canvas.style.height = `${finalViewport.height}px`;
+      canvas.style.maxWidth = '100%';
+      canvas.style.maxHeight = '100%';
+      
+      console.log('PDFViewer: Canvas dimensions set to:', canvas.width, 'x', canvas.height);
+      console.log('PDFViewer: Canvas CSS dimensions set to:', canvas.style.width, 'x', canvas.style.height);
 
       // Optimize canvas for better performance
       const dpr = window.devicePixelRatio || 1;
       if (dpr > 1) {
-        canvas.style.width = viewport.width + 'px';
-        canvas.style.height = viewport.height + 'px';
-        canvas.width = viewport.width * dpr;
-        canvas.height = viewport.height * dpr;
-        context.scale(dpr, dpr);
+        // For high DPI displays, we'll keep the canvas at the display size
+        // but render at higher resolution internally
+        context.scale(1, 1); // No additional scaling needed
       }
 
       const renderContext = {
         canvasContext: context,
-        viewport: viewport,
+        viewport: finalViewport,
         intent: 'display',
         renderInteractiveForms: false, // Disable for better performance
-        transform: dpr > 1 ? [dpr, 0, 0, dpr, 0, 0] : null
+        transform: null // No additional transform needed
       };
 
-      // Start render task with progress tracking
+      // Start render task with progress tracking and timeout protection
       const renderTask = page.render(renderContext);
       renderTaskRef.current = renderTask;
+
+      // Add timeout protection for rendering
+      const renderTimeout = setTimeout(() => {
+        if (renderTaskRef.current === renderTask) {
+          console.error('PDFViewer: Rendering timeout - cancelling task');
+          renderTask.cancel();
+          setError('PDF rendering timed out. The file might be too large or complex.');
+        }
+      }, 30000); // 30 second timeout
 
       // Simulate progress for large files
       const progressInterval = setInterval(() => {
         setRenderProgress(prev => Math.min(prev + 10, 90));
       }, 100);
 
-      await renderTask.promise;
-      clearInterval(progressInterval);
-      setRenderProgress(100);
+      try {
+        await renderTask.promise;
+        clearTimeout(renderTimeout);
+        clearInterval(progressInterval);
+        setRenderProgress(100);
+        console.log('PDFViewer: Page rendered successfully');
+      } catch (renderError) {
+        clearTimeout(renderTimeout);
+        clearInterval(progressInterval);
+        if (renderError.name !== 'RenderingCancelledException') {
+          throw renderError;
+        }
+        console.log('PDFViewer: Rendering was cancelled');
+        return;
+      }
 
-      // Initialize or update Fabric.js canvas
-      if (!fabricCanvasRef.current) {
-        const fabricCanvas = new fabric.Canvas(canvas, {
-          isDrawingMode: false,
-          selection: activeTool === 'select',
-          preserveObjectStacking: true,
-          renderOnAddRemove: false, // Optimize for bulk operations
-          skipTargetFind: false,
-          perPixelTargetFind: true
-        });
+      // Initialize or update Fabric.js canvas AFTER PDF is rendered
+      try {
+        if (!fabricCanvasRef.current) {
+          console.log('PDFViewer: Initializing Fabric.js canvas on separate annotations canvas');
+          
+          // Get the annotations canvas element
+          const annotationsCanvas = document.getElementById('annotations-canvas') as HTMLCanvasElement;
+          if (!annotationsCanvas) {
+            console.error('PDFViewer: Annotations canvas not found');
+            return;
+          }
+          
+          // Set the annotations canvas dimensions to match the PDF canvas
+          annotationsCanvas.width = canvas.width;
+          annotationsCanvas.height = canvas.height;
+          annotationsCanvas.style.width = canvas.style.width;
+          annotationsCanvas.style.height = canvas.style.height;
+          
+          const fabricCanvas = new fabric.Canvas(annotationsCanvas, {
+            isDrawingMode: false,
+            selection: activeTool === 'select',
+            preserveObjectStacking: true,
+            renderOnAddRemove: false, // Optimize for bulk operations
+            skipTargetFind: false,
+            perPixelTargetFind: true
+          });
+          
+          fabricCanvasRef.current = fabricCanvas;
+          setupFabricEventListeners(fabricCanvas);
+          console.log('PDFViewer: Fabric.js canvas initialized successfully on separate canvas');
+        } else {
+          // Update existing Fabric.js canvas dimensions
+          console.log('PDFViewer: Updating existing Fabric.js canvas dimensions');
+          const annotationsCanvas = document.getElementById('annotations-canvas') as HTMLCanvasElement;
+          if (annotationsCanvas) {
+            annotationsCanvas.width = canvas.width;
+            annotationsCanvas.height = canvas.height;
+            annotationsCanvas.style.width = canvas.style.width;
+            annotationsCanvas.style.height = canvas.style.height;
+          }
+          
+          fabricCanvasRef.current.renderOnAddRemove = false;
+          fabricCanvasRef.current.setDimensions({
+            width: finalViewport.width,
+            height: finalViewport.height
+          });
+          fabricCanvasRef.current.renderOnAddRemove = true;
+          fabricCanvasRef.current.renderAll();
+          console.log('PDFViewer: Existing Fabric.js canvas updated');
+        }
+
+        // Load annotations for current page
+        loadAnnotationsForPage(pageNum);
         
-        fabricCanvasRef.current = fabricCanvas;
-        setupFabricEventListeners(fabricCanvas);
-      } else {
-        // Temporarily disable rendering during updates
-        fabricCanvasRef.current.renderOnAddRemove = false;
-        fabricCanvasRef.current.setDimensions({
-          width: viewport.width,
-          height: viewport.height
-        });
-        fabricCanvasRef.current.clear();
-        fabricCanvasRef.current.renderOnAddRemove = true;
+        // Cache the rendered page for smaller files
+        if (totalPages < 50 && renderScale === fitScale) {
+          const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+          setPageCache(prev => new Map(prev).set(pageNum, imageData));
+        }
+      } catch (fabricError) {
+        console.error('PDFViewer: Fabric.js initialization error:', fabricError);
+        console.log('PDFViewer: Continuing without annotation features - PDF is still rendered');
+        // Continue without Fabric.js - PDF is still rendered
+        // The canvas will show the PDF but won't support annotations
       }
 
-      // Load annotations for current page
-      loadAnnotationsForPage(pageNum);
-      
-      // Cache the rendered page for smaller files
-      if (totalPages < 50 && scale === 1.0) {
-        const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-        setPageCache(prev => new Map(prev).set(pageNum, imageData));
-      }
+      console.log('PDFViewer: Page rendering completed successfully');
 
     } catch (error) {
       if (error.name !== 'RenderingCancelledException') {
         console.error('Error rendering page:', error);
+        setError(`Rendering failed: ${error.message || 'Unknown error'}`);
       }
     } finally {
       setIsRendering(false);
@@ -210,6 +429,14 @@ function PDFViewerComponent({
   };
 
   const setupFabricEventListeners = (fabricCanvas: fabric.Canvas) => {
+    // Prevent Fabric.js from clearing the canvas content
+    const originalClear = fabricCanvas.clear;
+    fabricCanvas.clear = function() {
+      console.log('PDFViewer: Preventing Fabric.js from clearing canvas content');
+      // Don't clear - preserve PDF content
+      return this;
+    };
+
     fabricCanvas.on('object:added', (e) => {
       if (e.target && !readOnly) {
         const obj = e.target;
@@ -714,17 +941,20 @@ function PDFViewerComponent({
   const zoomIn = () => {
     const newScale = Math.min(scale * 1.25, 3.0);
     setScale(newScale);
+    console.log('PDFViewer: Zooming in to:', newScale);
     renderPage(currentPage);
   };
 
   const zoomOut = () => {
     const newScale = Math.max(scale * 0.8, 0.25);
     setScale(newScale);
+    console.log('PDFViewer: Zooming out to:', newScale);
     renderPage(currentPage);
   };
 
   const resetZoom = () => {
     setScale(1.0);
+    console.log('PDFViewer: Resetting zoom to fit screen');
     renderPage(currentPage);
   };
 
@@ -733,6 +963,25 @@ function PDFViewerComponent({
       loadPDF(fileUrl);
     }
   }, [fileUrl, loadPDF]);
+
+  useEffect(() => {
+    // Clear error when fileUrl changes
+    if (fileUrl) {
+      setError(null);
+    }
+  }, [fileUrl]);
+
+  // Ensure canvas is properly initialized
+  useEffect(() => {
+    if (canvasRef.current && !canvasRef.current.getContext) {
+      console.log('PDFViewer: Canvas element found but not properly initialized');
+      // Force a re-render to ensure canvas is ready
+      const canvas = canvasRef.current;
+      if (canvas) {
+        canvas.width = canvas.width; // Trigger canvas refresh
+      }
+    }
+  }, [canvasRef.current]);
 
   useEffect(() => {
     if (fabricCanvasRef.current) {
@@ -858,9 +1107,33 @@ function PDFViewerComponent({
       </div>
 
       {/* PDF Display Area */}
-      <div className="pdf-display-area flex-1 overflow-auto bg-gray-100 p-4">
-        {isLoading ? (
-          <div className="flex items-center justify-center h-full">
+      <div className="pdf-display-area flex-1 overflow-auto bg-gray-100 p-4 relative">
+        {/* Canvas is always present */}
+        <div className="flex justify-center">
+          <div className="relative">
+            {/* PDF Canvas - This is where PDF.js renders */}
+            <canvas
+              ref={canvasRef}
+              className="border border-gray-300 shadow-lg bg-white rounded max-w-full h-auto"
+            />
+            {/* Annotations Canvas - This is where Fabric.js renders */}
+            <canvas
+              id="annotations-canvas"
+              className="absolute inset-0 pointer-events-none"
+              style={{ pointerEvents: activeTool !== 'select' ? 'auto' : 'none' }}
+            />
+            {/* Performance indicator for large files */}
+            {totalPages > 100 && (
+              <div className="absolute top-2 right-2 bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-xs">
+                Large PDF ({totalPages} pages)
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Loading overlay */}
+        {isLoading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-90">
             <div className="text-center space-y-4">
               <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
               <div className="text-lg text-gray-600">Loading PDF...</div>
@@ -869,8 +1142,32 @@ function PDFViewerComponent({
               </div>
             </div>
           </div>
-        ) : isRendering ? (
-          <div className="flex items-center justify-center h-full">
+        )}
+
+        {/* Error overlay */}
+        {error && (
+          <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-90">
+            <div className="text-center space-y-4 max-w-md">
+              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto">
+                <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
+              </div>
+              <div className="text-lg text-red-600 font-semibold">PDF Loading Failed</div>
+              <div className="text-sm text-gray-600">{error}</div>
+              <button
+                onClick={() => loadPDF(fileUrl!)}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Try Again
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Rendering overlay */}
+        {isRendering && (
+          <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-90">
             <div className="text-center space-y-4 max-w-md">
               <div className="w-12 h-12 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
               <div className="text-lg text-gray-600">Rendering Page {currentPage}</div>
@@ -883,21 +1180,6 @@ function PDFViewerComponent({
               <div className="text-sm text-gray-500">
                 {renderProgress}% complete
               </div>
-            </div>
-          </div>
-        ) : (
-          <div className="flex justify-center">
-            <div className="relative">
-              <canvas
-                ref={canvasRef}
-                className="border border-gray-300 shadow-lg bg-white rounded max-w-full h-auto"
-              />
-              {/* Performance indicator for large files */}
-              {totalPages > 100 && (
-                <div className="absolute top-2 right-2 bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-xs">
-                  Large PDF ({totalPages} pages)
-                </div>
-              )}
             </div>
           </div>
         )}

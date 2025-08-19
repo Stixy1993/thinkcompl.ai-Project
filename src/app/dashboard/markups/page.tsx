@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { HiPencilAlt, HiCursorClick, HiDocumentText, HiViewBoards, HiXCircle, HiArrowRight, HiPencil, HiCloud, HiChatAlt, HiBookmark, HiChartBar, HiLightBulb } from 'react-icons/hi';
 import PDFViewer, { Annotation, Comment, MarkupTool } from '../../../components/PDFViewer';
 import SharePointFileBrowser from '../../../components/SharePointFileBrowser';
@@ -33,6 +33,8 @@ export default function MarkupsPage() {
   const [currentComment, setCurrentComment] = useState('');
   const [pendingRevisionCloud, setPendingRevisionCloud] = useState<{x: number, y: number} | null>(null);
   const [showPropertiesPanel, setShowPropertiesPanel] = useState(false);
+  const [isLoadingFile, setIsLoadingFile] = useState(false);
+  const currentBlobUrlRef = useRef<string | null>(null);
 
   // Handle clicking outside the properties panel
   const handleClickOutside = useCallback((e: React.MouseEvent) => {
@@ -60,11 +62,87 @@ export default function MarkupsPage() {
     { id: 'highlight', name: 'Highlight', icon: HiLightBulb, description: 'Highlight text' }
   ];
 
-  const handleFileSelect = useCallback(async (file: SharePointItem) => {
-    setCurrentFile(file);
-    setCurrentFileUrl(file['@microsoft.graph.downloadUrl'] || null);
-    setShowFileBrowser(false);
-    setAnnotations([]);
+  const handleFileSelect = useCallback(async (file: SharePointItem, driveId: string) => {
+    console.log('File selected:', file);
+    console.log('Drive ID:', driveId);
+    console.log('Download URL:', file['@microsoft.graph.downloadUrl']);
+    
+    if (!driveId) {
+      console.error('No drive ID provided');
+      alert('Unable to open file: No drive ID available. Please try refreshing the file browser.');
+      return;
+    }
+    
+    setIsLoadingFile(true);
+    
+    // Use the existing downloadFile action to avoid CORS issues
+    try {
+      console.log('Downloading file through backend:', file.id, 'in drive:', driveId);
+      
+      // Create a blob URL from the backend download
+      const response = await fetch(`/api/sharepoint/documents?action=downloadFile&fileId=${file.id}&driveId=${driveId}&fileName=${encodeURIComponent(file.name)}`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to download file: ${response.status} ${response.statusText}`);
+      }
+      
+      // Get the file content as a blob
+      const blob = await response.blob();
+      console.log('File downloaded successfully, size:', blob.size, 'bytes');
+      
+      // Create a blob URL that the PDF viewer can use
+      const blobUrl = URL.createObjectURL(blob);
+      console.log('Created blob URL:', blobUrl);
+      
+      // Clean up previous blob URL if it exists
+      if (currentBlobUrlRef.current) {
+        URL.revokeObjectURL(currentBlobUrlRef.current);
+        console.log('Cleaned up previous blob URL');
+      }
+      
+      // Store the new blob URL
+      currentBlobUrlRef.current = blobUrl;
+      
+      // Set the file URL to our blob URL
+      setCurrentFile(file);
+      setCurrentFileUrl(blobUrl);
+      setShowFileBrowser(false);
+      setAnnotations([]);
+      console.log('File set successfully, PDFViewer should now load');
+      
+    } catch (error) {
+      console.error('Error downloading file:', error);
+      alert('Unable to open file: Failed to download file. Please try refreshing the file browser.');
+    } finally {
+      setIsLoadingFile(false);
+    }
+  }, []);
+
+  // Add a function to show helpful troubleshooting information
+  const showTroubleshootingInfo = () => {
+    alert(`Troubleshooting Steps:
+    
+1. Click the refresh button (🔄) in the file browser to get fresh download links
+2. Make sure you're signed into SharePoint
+3. Check if the file exists and you have permission to access it
+4. Try navigating to a different folder and back
+5. If the issue persists, contact your administrator
+
+Common Issues:
+• SharePoint download URLs expire after a short time
+• Network connectivity problems
+• File permissions or access restrictions
+• SharePoint service temporary unavailability`);
+  };
+
+  // Cleanup blob URL on unmount
+  useEffect(() => {
+    return () => {
+      if (currentBlobUrlRef.current) {
+        URL.revokeObjectURL(currentBlobUrlRef.current);
+        console.log('Cleaned up blob URL on unmount');
+      }
+    };
   }, []);
 
   const handleRevisionCloudClick = useCallback((e: React.MouseEvent) => {
@@ -201,8 +279,24 @@ export default function MarkupsPage() {
                 <button
                   onClick={() => setShowFileBrowser(true)}
                   className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  disabled={isLoadingFile}
                 >
-                  Select PDF File
+                  {isLoadingFile ? 'Loading File...' : 'Select PDF File'}
+                </button>
+                {isLoadingFile && (
+                  <div className="mt-3 flex items-center justify-center space-x-2">
+                    <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                    <span className="text-sm text-blue-600">Processing file...</span>
+                  </div>
+                )}
+                <p className="text-sm text-gray-500 mt-2 max-w-md">
+                  If you encounter issues opening files, try refreshing the file browser to get fresh download links.
+                </p>
+                <button
+                  onClick={showTroubleshootingInfo}
+                  className="mt-3 px-4 py-2 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors"
+                >
+                  Need Help? View Troubleshooting Steps
                 </button>
               </div>
             </div>

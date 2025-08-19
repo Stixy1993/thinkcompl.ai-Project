@@ -6,7 +6,7 @@ import { sharePointClient } from '@/lib/sharepoint';
 import { SharePointItem } from '@/lib/sharepoint';
 
 interface SharePointFileBrowserProps {
-  onFileSelect: (file: SharePointItem) => void;
+  onFileSelect: (file: SharePointItem, driveId: string) => void;
   selectedFile?: SharePointItem | null;
   fileTypes?: string[]; // e.g., ['.pdf', '.dwg', '.doc']
 }
@@ -212,15 +212,25 @@ export default function SharePointFileBrowser({
         )}
 
         {/* Search */}
-        <div className="relative">
-          <HiSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-          <input
-            type="text"
-            placeholder="Search files..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
+        <div className="flex items-center space-x-2">
+          <div className="relative flex-1">
+            <HiSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+            <input
+              type="text"
+              placeholder="Search files..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <button
+            onClick={loadDrives}
+            disabled={loading}
+            className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors"
+            title="Refresh files and get fresh download URLs"
+          >
+            <HiRefresh className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
         </div>
       </div>
 
@@ -293,7 +303,7 @@ export default function SharePointFileBrowser({
                   if (item.folder) {
                     handleFolderOpen(item);
                   } else if (isFileSupported(item)) {
-                    onFileSelect(item);
+                    onFileSelect(item, currentDrive?.id || '');
                   }
                 }}
               >
@@ -325,7 +335,7 @@ export default function SharePointFileBrowser({
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            onFileSelect(item);
+                            onFileSelect(item, currentDrive?.id || '');
                           }}
                           className="p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-100 rounded transition-colors"
                           title="Open for editing"

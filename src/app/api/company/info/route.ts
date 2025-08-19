@@ -14,8 +14,8 @@ const firebaseConfig = {
 };
 
 // Singleton Firebase connection (reuse across requests)
-let app;
-let db;
+let app: any;
+let db: any;
 
 function getFirebaseDB() {
   if (!app) {
@@ -31,9 +31,9 @@ function getFirebaseDB() {
 
 // In-memory cache for company info
 const companyCache = new Map();
-const CACHE_TTL = 60000; // 1 minute cache for company info
+const CACHE_TTL = 600000; // 10 minutes cache for company info (changes less frequently)
 
-function getCachedCompanyData(key) {
+function getCachedCompanyData(key: string) {
   const cached = companyCache.get(key);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
     return cached.data;
@@ -41,7 +41,7 @@ function getCachedCompanyData(key) {
   return null;
 }
 
-function setCachedCompanyData(key, data) {
+function setCachedCompanyData(key: string, data: any) {
   companyCache.set(key, {
     data,
     timestamp: Date.now()
@@ -50,10 +50,10 @@ function setCachedCompanyData(key, data) {
 
 export async function GET(request: NextRequest) {
   const startTime = Date.now();
+  const cacheKey = 'company-info';
   
   try {
     // Check cache first for instant response
-    const cacheKey = 'company-info';
     const cachedResult = getCachedCompanyData(cacheKey);
     if (cachedResult) {
       console.log(`✅ Company info cache hit in ${Date.now() - startTime}ms`);

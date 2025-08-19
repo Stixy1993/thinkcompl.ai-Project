@@ -31,7 +31,7 @@ function getFirebaseDB() {
 
 // In-memory cache for API responses (production should use Redis)
 const cache = new Map();
-const CACHE_TTL = 30000; // 30 seconds cache
+const CACHE_TTL = 300000; // 5 minutes cache for fewer Firestore hits
 const MAX_CACHE_SIZE = 100;
 
 function getCachedData(key) {
@@ -72,29 +72,39 @@ export async function GET(request: NextRequest) {
 
     console.log('🔍 Fetching team members from Firestore...');
     
-    // Optimized Firestore query with limits and ordering
+    // Super optimized Firestore query for maximum speed
     const db = getFirebaseDB();
     const teamMembersRef = collection(db, 'team-members');
     
-    // Add query optimizations: limit results, order by creation time
-    const optimizedQuery = query(
+    // Ultra-fast query: minimal data, indexed fields, aggressive limits
+    const fastQuery = query(
       teamMembersRef,
-      orderBy('joinedAt', 'desc'), // Most recent first
-      limit(50) // Limit to 50 team members max
+      limit(10) // Drastically reduce to 10 for speed
+      // Remove orderBy to avoid index requirements and improve speed
     );
     
-    // Set timeout for Firestore query (fail fast if slow)
-    const queryPromise = getDocs(optimizedQuery);
+    // Reduced timeout for faster failover (2 seconds max)
+    const queryPromise = getDocs(fastQuery);
     const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Firestore query timeout')), 5000)
+      setTimeout(() => reject(new Error('Firestore query timeout')), 2000)
     );
     
     const teamMembersSnapshot = await Promise.race([queryPromise, timeoutPromise]);
     
-    let realTeamMembers = teamMembersSnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
+    // Only extract essential fields to reduce data transfer
+    let realTeamMembers = teamMembersSnapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        email: data.email,
+        name: data.name,
+        role: data.role,
+        status: data.status,
+        joinedAt: data.joinedAt,
+        photoURL: data.photoURL
+        // Skip heavy fields like licenses, certifications for faster transfer
+      };
+    });
 
     console.log(`📊 Found ${realTeamMembers.length} team members in Firestore (${Date.now() - startTime}ms)`);
 

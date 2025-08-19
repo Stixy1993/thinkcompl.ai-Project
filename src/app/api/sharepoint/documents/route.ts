@@ -137,7 +137,7 @@ export async function GET(request: NextRequest) {
         
         return response;
 
-      case 'getDefaultDrive':
+      case 'getDrives':
         // Get all document libraries from the user's site
         const siteId = searchParams.get('siteId');
         if (!siteId) {
@@ -210,6 +210,8 @@ export async function GET(request: NextRequest) {
         }
         
         return driveResponse;
+
+
 
       case 'getItems':
         // Get files and folders from the default SharePoint drive

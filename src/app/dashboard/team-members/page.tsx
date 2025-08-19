@@ -1,11 +1,13 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { motion } from 'framer-motion';
 import { HiUserGroup, HiPlus, HiMail, HiUser, HiShieldCheck, HiClock, HiCheckCircle, HiExclamationCircle, HiX, HiViewList, HiChartBar, HiPencil, HiCog, HiEye, HiCheck, HiSortDescending } from 'react-icons/hi';
 import { useAuth } from '@/lib/hooks/useAuth';
-import TeamHierarchy from '@/app/components/TeamHierarchy';
 import { mockTeamMembers, mockInvites, mockUserProfiles } from '@/app/constants/mockTeamData';
+
+// Lazy load the heavy TeamHierarchy component
+const TeamHierarchy = lazy(() => import('@/app/components/TeamHierarchy'));
 
 interface TeamMember {
   id: string;
@@ -400,7 +402,7 @@ export default function TeamMembersPage() {
   const { user } = useAuth();
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [invites, setInvites] = useState<TeamMember[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // Start with false for instant navigation
   const [companyInfo, setCompanyInfo] = useState<any>(null);
   const [showProfilePrompt, setShowProfilePrompt] = useState(false);
   const [inviteLoading, setInviteLoading] = useState(false);
@@ -619,7 +621,8 @@ export default function TeamMembersPage() {
   // Load team members on component mount
   const loadTeamMembers = useCallback(async () => {
     try {
-      setLoading(true);
+      // Don't block page render - load optimistically
+      // setLoading(true); // Remove this to enable instant navigation
       
       // Load actual team members from Firestore first
       let allTeamMembers: TeamMember[] = [];
@@ -1332,7 +1335,7 @@ export default function TeamMembersPage() {
       console.error('Error loading team members:', error);
       showNotification('error', 'Failed to load team members');
     } finally {
-      setLoading(false);
+      // setLoading(false); // Keep page responsive - data loads in background
     }
   }, [user]);
 
@@ -1964,7 +1967,14 @@ export default function TeamMembersPage() {
                 </div>
               </div>
             ) : (
-              <TeamHierarchy teamMembers={teamMembers} invites={invites} onMemberClick={handleMemberClick} />
+              <Suspense fallback={
+                <div className="flex items-center justify-center py-12">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                  <span className="ml-3 text-gray-600">Loading visual hierarchy...</span>
+                </div>
+              }>
+                <TeamHierarchy teamMembers={teamMembers} invites={invites} onMemberClick={handleMemberClick} />
+              </Suspense>
             )}
           </div>
         </div>
@@ -2068,11 +2078,13 @@ export default function TeamMembersPage() {
       )}
 
       {/* Profile Details Modal */}
-      <ProfileDetailsModal
-        member={selectedMember}
-        isOpen={showProfileModal}
-        onClose={() => setShowProfileModal(false)}
-      />
+      <Suspense fallback={null}>
+        <ProfileDetailsModal
+          member={selectedMember}
+          isOpen={showProfileModal}
+          onClose={() => setShowProfileModal(false)}
+        />
+      </Suspense>
     </div>
   );
 }

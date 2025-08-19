@@ -38,6 +38,8 @@ export default function ChatWidget({ fullPage = false, apiEndpoint }: ChatWidget
   const [teamChatMessages, setTeamChatMessages] = useState<{[key: string]: Array<{id: string, role: 'user' | 'assistant', content: string, timestamp: Date}>}>({});
   const [teamChatInput, setTeamChatInput] = useState('');
   
+
+  
   const {
     messages: thinkyMessages,
     input,
@@ -528,7 +530,7 @@ export default function ChatWidget({ fullPage = false, apiEndpoint }: ChatWidget
     <>
       {/* Floating Chat Bubbles Area */}
       <div 
-        className="fixed bottom-6 right-6 z-40"
+        className="fixed bottom-6 right-6 z-40 transition-all duration-500 ease-in-out"
         onMouseEnter={() => setIsExpanded(true)}
         onMouseLeave={() => setIsExpanded(false)}
       >

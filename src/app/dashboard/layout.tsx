@@ -4,7 +4,7 @@ import React from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
-import { HiHome, HiFolderOpen, HiChartBar, HiDocumentText, HiPhotograph, HiPencilAlt, HiClipboardList, HiClipboardCheck, HiCheckCircle, HiTruck, HiClipboardCopy, HiOfficeBuilding, HiBadgeCheck, HiChevronLeft, HiChevronRight, HiUserGroup, HiLogout } from "react-icons/hi";
+import { HiHome, HiFolderOpen, HiChartBar, HiDocumentText, HiPhotograph, HiPencilAlt, HiClipboardList, HiClipboardCheck, HiCheckCircle, HiTruck, HiClipboardCopy, HiOfficeBuilding, HiBadgeCheck, HiChevronLeft, HiChevronRight, HiUserGroup, HiLogout, HiUser } from "react-icons/hi";
 import { FaCog } from "react-icons/fa";
 import { HiOutlineSearch } from "react-icons/hi";
 import { useState, useRef, useEffect } from "react";
@@ -38,6 +38,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
@@ -72,7 +73,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     <div className="flex h-screen bg-blue-400 overflow-hidden">
       {/* Sidebar - Fixed */}
       <aside
-        className={`fixed left-0 top-0 bottom-0 flex flex-col shadow-lg bg-white border-r border-gray-200 transition-all duration-200 z-30 ${
+        className={`fixed left-0 top-0 bottom-0 flex flex-col shadow-lg bg-white border-r border-gray-200 transition-all duration-200 z-30 overflow-visible ${
           collapsed ? "w-16" : "w-48"
         }`}
       >
@@ -91,35 +92,33 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
         
         {/* Navigation */}
-        <nav className="flex-1 space-y-0.5">
+        <nav className="flex-1 space-y-0.5 overflow-visible">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = item.label === "Dashboard" 
               ? pathname === "/dashboard" 
               : pathname.startsWith(item.href || "");
             return (
-              <div key={item.label} className="relative group">
+              <div key={item.label} className="relative group overflow-visible">
                 {item.href ? (
-                  <Link href={item.href} legacyBehavior>
-                                        <a 
-                      className={`flex items-center ${collapsed ? "justify-center" : "justify-start"} rounded-lg text-left text-gray-700 transition py-1.5 ${
-                        isActive ? "font-semibold text-blue-700" : ""
-                      }`}
-                    >
-                      <div className={`${collapsed ? "mx-auto" : "ml-4"} ${isActive ? "bg-blue-200 rounded-lg px-1 py-1" : "group-hover:bg-blue-200 rounded-lg px-1 py-1"} flex items-center justify-center flex-shrink-0 transition-all duration-200`}>
-                        <Icon 
-                          className={`${isActive ? "text-blue-700" : "text-blue-500"} w-5 h-5`}
-                        />
-                      </div>
-                      {!collapsed && (
-                        <span 
-                          className="ml-2 text-sm font-medium flex-shrink-0 group-hover:max-w-none max-w-[120px] truncate transition-all duration-200 cursor-help group-hover:bg-white group-hover:px-2 group-hover:py-1 group-hover:rounded group-hover:shadow-md group-hover:-my-1"
-                          title={item.label}
-                        >
-                          {item.label}
-                        </span>
-                      )}
-                    </a>
+                  <Link 
+                    href={item.href}
+                    className={`flex items-center ${collapsed ? "justify-center" : "justify-start"} rounded-lg text-left text-gray-700 transition-colors duration-200 py-1.5 ${
+                      isActive ? "font-semibold text-blue-700" : ""
+                    }`}
+                  >
+                    <div className={`${collapsed ? "mx-auto" : "ml-4"} ${isActive ? "bg-blue-200" : "group-hover:bg-blue-200"} rounded-lg px-1 py-1 flex items-center justify-center flex-shrink-0 transition-colors duration-200`}>
+                      <Icon 
+                        className={`${isActive ? "text-blue-700" : "text-blue-500"} w-5 h-5`}
+                      />
+                    </div>
+                    {!collapsed && (
+                       <span 
+                         className="ml-2 text-sm font-medium flex-shrink-0 group-hover:max-w-none max-w-[120px] truncate transition-all duration-200 cursor-help group-hover:bg-white group-hover:px-2 group-hover:py-1 group-hover:rounded group-hover:shadow-md group-hover:-my-1 group-hover:z-[9999] group-hover:whitespace-nowrap group-hover:relative group-hover:min-w-fit"
+                       >
+                         {item.label}
+                       </span>
+                     )}
                   </Link>
                 ) : (
                                     <button
@@ -135,8 +134,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     </div>
                     {!collapsed && (
                       <span 
-                        className="ml-2 text-sm font-medium flex-shrink-0 group-hover:max-w-none max-w-[120px] truncate transition-all duration-200 cursor-help group-hover:bg-white group-hover:px-2 group-hover:py-1 group-hover:rounded group-hover:shadow-md group-hover:-my-1"
-                        title={item.label}
+                        className="ml-2 text-sm font-medium flex-shrink-0 group-hover:max-w-none max-w-[120px] truncate transition-all duration-200 cursor-help group-hover:bg-white group-hover:px-2 group-hover:py-1 group-hover:rounded group-hover:shadow-md group-hover:-my-1 group-hover:z-[9999] group-hover:whitespace-nowrap group-hover:relative group-hover:min-w-fit"
                       >
                         {item.label}
                       </span>
@@ -232,6 +230,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               {/* Tooltip for Settings */}
               <span className="absolute left-1/2 top-full mt-2 -translate-x-1/2 px-3 py-1 rounded bg-gray-800/80 text-white text-xs opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-20 transition-opacity duration-200 shadow-lg">Settings</span>
             </div>
+            <div className="relative group">
+              <button
+                className="flex items-center justify-center text-white transition-all duration-200 rounded-full hover:bg-blue-400 hover:shadow-lg focus:outline-none w-8 h-8 text-lg relative"
+                onClick={() => setChatOpen(!chatOpen)}
+                aria-label="Chat"
+                suppressHydrationWarning
+              >
+                <HiUser />
+                {/* Green notification circle */}
+                <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-white animate-bounce hover:scale-125 hover:shadow-lg transition-all duration-300 cursor-pointer"></div>
+              </button>
+              {/* Tooltip for Chat */}
+              <span className="absolute left-1/2 top-full mt-2 -translate-x-1/2 px-3 py-1 rounded bg-gray-800/80 text-white text-xs opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-20 transition-opacity duration-200 shadow-lg">Chat</span>
+            </div>
             {user && user.photoURL ? (
               <div 
                 className="relative group flex items-center gap-2 px-2 py-1 rounded-full transition-all duration-200 hover:bg-blue-400/80 hover:shadow-lg cursor-pointer" 
@@ -306,7 +318,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </div>
       
       {/* Chat Widget */}
-      <ChatWidget />
+      {chatOpen && <ChatWidget />}
     </div>
   );
-} 
+}

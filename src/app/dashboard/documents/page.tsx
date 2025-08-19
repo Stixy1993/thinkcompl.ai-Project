@@ -200,7 +200,7 @@ export default function DocumentsPage() {
   const loadDefaultDrive = async (siteId: string) => {
     try {
       console.log('Loading default drive for site:', siteId);
-      const response = await fetch(`/api/sharepoint/documents?action=getDefaultDrive&siteId=${siteId}`);
+      const response = await fetch(`/api/sharepoint/documents?action=getDrives&siteId=${siteId}`);
       
       if (response.ok) {
         const data = await response.json();

@@ -97,3 +97,11 @@ html {
     font-size: 32px;
   }
 }
+
+/* Minimal PDF viewer styling */
+.pdf-display-area canvas {
+  display: block;
+  margin: 0;
+  padding: 0;
+  vertical-align: top;
+}

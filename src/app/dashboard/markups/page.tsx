@@ -35,6 +35,20 @@ export default function MarkupsPage() {
   const [showPropertiesPanel, setShowPropertiesPanel] = useState(false);
   const [isLoadingFile, setIsLoadingFile] = useState(false);
   const currentBlobUrlRef = useRef<string | null>(null);
+  const [pdfControls, setPdfControls] = useState<{
+    currentPage: number;
+    totalPages: number;
+    scale: number;
+    goToPreviousPage: () => void;
+    goToNextPage: () => void;
+    zoomIn: () => void;
+    zoomOut: () => void;
+    resetZoom: () => void;
+  } | null>(null);
+
+
+
+
 
   // Handle clicking outside the properties panel
   const handleClickOutside = useCallback((e: React.MouseEvent) => {
@@ -177,9 +191,13 @@ Common Issues:
   }, [pendingRevisionCloud, currentComment, toolProperties]);
 
   return (
-    <div className="h-full w-full bg-blue-900">
+    <div className="h-full w-full bg-blue-900 overflow-hidden">
       {/* Main Content Area */}
-      <div className="flex h-full w-full bg-white" onClick={handleClickOutside}>
+      <div 
+        className="flex h-full w-full bg-white overflow-hidden" 
+        style={{ paddingRight: '64px' }} // Reserve space for fixed right toolbar
+        onClick={handleClickOutside}
+      >
         {/* Left Panel - File Browser */}
         {showFileBrowser && (
           <div className="w-80 bg-white border-r border-gray-200 shadow-lg flex-shrink-0">
@@ -190,16 +208,17 @@ Common Issues:
         )}
 
         {/* Center PDF Viewer */}
-        <div className="flex-1 bg-gray-50 min-w-0 relative">
+        <div className="flex-1 bg-gray-50 min-w-0 relative" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center' }}>
           {currentFileUrl ? (
-            <div className="w-full h-full" onClick={handleRevisionCloudClick}>
+            <div className="w-full h-auto markups-page-pdf-container" onClick={handleRevisionCloudClick}>
               <PDFViewer
                 fileUrl={currentFileUrl}
                 annotations={annotations}
                 onAnnotationAdd={(annotation) => setAnnotations(prev => [...prev, annotation])}
                 onAnnotationUpdate={(annotation) => setAnnotations(prev => prev.map(a => a.id === annotation.id ? annotation : a))}
                 onAnnotationDelete={(id) => setAnnotations(prev => prev.filter(a => a.id !== id))}
-                className="w-full h-full"
+                onPDFControlsChange={setPdfControls}
+                className="w-full"
               />
               
               {/* Revision Cloud Comment Box Overlay */}
@@ -304,7 +323,18 @@ Common Issues:
         </div>
 
         {/* Right Panel - Markup Toolbar (Styled EXACTLY like main menu) */}
-        <div className="w-16 bg-white border-l border-gray-200 shadow-lg flex-shrink-0 relative">
+        <div 
+          className="w-16 bg-white border-l border-gray-200 shadow-lg flex-shrink-0 relative"
+          style={{
+            position: 'fixed',
+            right: 0,
+            top: '4rem', // Below main header
+            bottom: 0,
+            zIndex: 10000,
+            minWidth: '64px',
+            maxWidth: '64px'
+          }}
+        >
           {/* Expandable Properties Panel */}
           {showPropertiesPanel && (
             <div className="properties-panel absolute right-full bottom-0 w-64 bg-white border border-gray-200 shadow-lg rounded-lg z-50" style={{ bottom: '-20px' }}>
@@ -470,6 +500,84 @@ Common Issues:
           </nav>
         </div>
       </div>
+      
+      {/* PDF Toolbar - Fixed at bottom, independent of PDF component */}
+      {currentFileUrl && pdfControls && (
+        <div 
+          className="fixed bottom-6 left-1/2 transform -translate-x-1/2 opacity-100"
+          style={{ 
+            position: 'fixed' as const, 
+            zIndex: 999999,
+            bottom: '24px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            pointerEvents: 'auto' as const
+          }}
+        >
+          <div className="bg-black/90 backdrop-blur-md border border-white/30 rounded-2xl shadow-2xl p-3 flex items-center space-x-4">
+            {/* Navigation */}
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={pdfControls?.goToPreviousPage || (() => {})}
+                disabled={(pdfControls?.currentPage || 1) <= 1}
+                className="p-2 text-white/90 hover:text-white disabled:text-white/40 rounded-lg hover:bg-white/15 transition-all duration-200 disabled:hover:bg-transparent"
+                title="Previous page"
+              >
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
+                </svg>
+              </button>
+              <span className="text-sm text-white/95 px-3 py-1.5 font-medium bg-white/15 rounded-lg border border-white/30 min-w-16 text-center">
+                {pdfControls?.currentPage || 1}/{pdfControls?.totalPages || 1}
+              </span>
+              <button
+                onClick={pdfControls?.goToNextPage || (() => {})}
+                disabled={(pdfControls?.currentPage || 1) >= (pdfControls?.totalPages || 1)}
+                className="p-2 text-white/90 hover:text-white disabled:text-white/40 rounded-lg hover:bg-white/15 transition-all duration-200 disabled:hover:bg-transparent"
+                title="Next page"
+              >
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="w-px h-8 bg-white/30"></div>
+
+            {/* Zoom controls */}
+            <div className="flex items-center space-x-2">
+              <button 
+                onClick={pdfControls?.zoomOut || (() => {})} 
+                className="p-2 text-white/90 hover:text-white rounded-lg hover:bg-white/15 transition-all duration-200"
+                title="Zoom out"
+              >
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
+                </svg>
+              </button>
+              <span className="text-sm text-white/95 px-3 py-1.5 font-medium bg-white/15 rounded-lg border border-white/30 min-w-16 text-center">
+                {Math.round((pdfControls?.scale || 1) * 100)}%
+              </span>
+              <button 
+                onClick={pdfControls?.zoomIn || (() => {})} 
+                className="p-2 text-white/90 hover:text-white rounded-lg hover:bg-white/15 transition-all duration-200"
+                title="Zoom in"
+              >
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                </svg>
+              </button>
+              <button 
+                onClick={pdfControls?.resetZoom || (() => {})} 
+                className="px-3 py-1.5 text-white/90 hover:text-white text-sm rounded-lg hover:bg-white/15 transition-all duration-200 font-medium"
+                title="Reset zoom"
+              >
+                Fit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

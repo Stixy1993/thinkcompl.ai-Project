@@ -68,6 +68,16 @@ interface PDFViewerProps {
   annotations?: Annotation[];
   readOnly?: boolean;
   className?: string;
+  onPDFControlsChange?: (controls: {
+    currentPage: number;
+    totalPages: number;
+    scale: number;
+    goToPreviousPage: () => void;
+    goToNextPage: () => void;
+    zoomIn: () => void;
+    zoomOut: () => void;
+    resetZoom: () => void;
+  }) => void;
 }
 
 function PDFViewerComponent({
@@ -77,7 +87,8 @@ function PDFViewerComponent({
   onAnnotationDelete,
   annotations = [],
   readOnly = false,
-  className = ""
+  className = "",
+  onPDFControlsChange
 }: PDFViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -87,6 +98,7 @@ function PDFViewerComponent({
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
   const [scale, setScale] = useState(1.0);
+  const scaleRef = useRef(1.0);
   const [activeTool, setActiveTool] = useState<MarkupTool>('select');
   const [isLoading, setIsLoading] = useState(false);
   const [isRendering, setIsRendering] = useState(false);
@@ -94,6 +106,10 @@ function PDFViewerComponent({
   const [renderProgress, setRenderProgress] = useState(0);
   const [pageCache, setPageCache] = useState<Map<number, ImageData>>(new Map());
   const [error, setError] = useState<string | null>(null);
+  const [panPosition, setPanPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [isClient, setIsClient] = useState(false);
 
   // Keyboard shortcuts
   useHotkeys('ctrl+z', () => undo(), { enableOnTags: ['INPUT', 'TEXTAREA'] });
@@ -258,22 +274,23 @@ function PDFViewerComponent({
         return;
       }
       
-      // Get the available space for the PDF (accounting for padding and borders)
-      const containerRect = container.getBoundingClientRect();
-      const availableWidth = containerRect.width - 64; // 32px padding on each side
-      const availableHeight = containerRect.height - 200; // Account for toolbar and padding
+             // Get the available space for the PDF (accounting for padding and borders)
+       const containerRect = container.getBoundingClientRect();
+       const availableWidth = Math.max(containerRect.width - 64, 100); // 32px padding on each side, minimum 100px
+       // Don't use container height for calculation - let the PDF determine the height
+       const availableHeight = Math.max(window.innerHeight * 0.8, 100); // Use viewport height instead
+       
+       console.log('PDFViewer: Available space:', availableWidth, 'x', availableHeight);
+       
+       // Calculate scale to fit the page within the available space
+       const scaleX = availableWidth / viewport.width;
+       const scaleY = availableHeight / viewport.height;
+       const fitScale = Math.min(scaleX, scaleY, 1.0); // Don't scale up beyond 100%
       
-      console.log('PDFViewer: Available space:', availableWidth, 'x', availableHeight);
-      
-      // Calculate scale to fit the page within the available space
-      const scaleX = availableWidth / viewport.width;
-      const scaleY = availableHeight / viewport.height;
-      const fitScale = Math.min(scaleX, scaleY, 1.0); // Don't scale up beyond 100%
-      
-      // Apply user's zoom preference on top of the fit scale
-      const finalScale = fitScale * scale;
-      
-      console.log('PDFViewer: Calculated scales - fit:', fitScale, 'user zoom:', scale, 'final:', finalScale);
+                     // Apply user's zoom preference on top of the fit scale
+        const finalScale = Math.max(fitScale * scaleRef.current, 0.1); // Ensure minimum scale of 0.1
+        
+        console.log('PDFViewer: Calculated scales - fit:', fitScale, 'user zoom:', scaleRef.current, 'final:', finalScale);
       
       // Limit canvas size to prevent memory issues
       const maxDimension = 4096; // Maximum canvas dimension
@@ -285,15 +302,16 @@ function PDFViewerComponent({
       
       const finalViewport = page.getViewport({ scale: renderScale });
       
-      // Set canvas dimensions to the scaled size
-      canvas.width = finalViewport.width;
-      canvas.height = finalViewport.height;
-      
-      // Set CSS dimensions to maintain aspect ratio and fit container
-      canvas.style.width = `${finalViewport.width}px`;
-      canvas.style.height = `${finalViewport.height}px`;
-      canvas.style.maxWidth = '100%';
-      canvas.style.maxHeight = '100%';
+             // Set canvas dimensions to the scaled size
+       canvas.width = finalViewport.width;
+       canvas.height = finalViewport.height;
+       
+       // Set CSS dimensions to maintain aspect ratio and fit container
+       // Use explicit height to prevent layout issues
+       canvas.style.width = `${finalViewport.width}px`;
+       canvas.style.height = `${finalViewport.height}px`;
+       canvas.style.maxWidth = '100%';
+       canvas.style.maxHeight = 'none';
       
       console.log('PDFViewer: Canvas dimensions set to:', canvas.width, 'x', canvas.height);
       console.log('PDFViewer: Canvas CSS dimensions set to:', canvas.style.width, 'x', canvas.style.height);
@@ -360,11 +378,11 @@ function PDFViewerComponent({
             return;
           }
           
-          // Set the annotations canvas dimensions to match the PDF canvas
-          annotationsCanvas.width = canvas.width;
-          annotationsCanvas.height = canvas.height;
-          annotationsCanvas.style.width = canvas.style.width;
-          annotationsCanvas.style.height = canvas.style.height;
+                     // Set the annotations canvas dimensions to match the PDF canvas
+           annotationsCanvas.width = canvas.width;
+           annotationsCanvas.height = canvas.height;
+           annotationsCanvas.style.width = canvas.style.width;
+           annotationsCanvas.style.height = canvas.style.height;
           
           const fabricCanvas = new fabric.Canvas(annotationsCanvas, {
             isDrawingMode: false,
@@ -378,16 +396,64 @@ function PDFViewerComponent({
           fabricCanvasRef.current = fabricCanvas;
           setupFabricEventListeners(fabricCanvas);
           console.log('PDFViewer: Fabric.js canvas initialized successfully on separate canvas');
-        } else {
-          // Update existing Fabric.js canvas dimensions
-          console.log('PDFViewer: Updating existing Fabric.js canvas dimensions');
-          const annotationsCanvas = document.getElementById('annotations-canvas') as HTMLCanvasElement;
-          if (annotationsCanvas) {
-            annotationsCanvas.width = canvas.width;
-            annotationsCanvas.height = canvas.height;
-            annotationsCanvas.style.width = canvas.style.width;
-            annotationsCanvas.style.height = canvas.style.height;
+          
+          // Force container resize AFTER Fabric.js is initialized
+          if (containerRef.current) {
+            const container = containerRef.current;
+            // Calculate the actual height needed based on the rendered PDF
+            const pdfHeight = finalViewport.height;
+            const padding = 40; // Just padding for the container, toolbar is in normal flow
+            const actualHeight = pdfHeight + padding;
+            
+            console.log(`PDFViewer: Setting container height AFTER Fabric.js to ${actualHeight}px (PDF: ${pdfHeight}px + padding: ${padding}px)`);
+            
+            // Let the container size itself naturally
+            console.log(`PDFViewer: Container will size naturally based on content`);
+            
+            // Clear any previous explicit sizing
+            container.style.height = '';
+            container.style.minHeight = '';
+            container.style.maxHeight = '';
+            
+            // Force a reflow to ensure proper sizing
+            container.offsetHeight;
+            
+            // Container will size naturally based on content
           }
+        } else {
+                     // Update existing Fabric.js canvas dimensions
+           console.log('PDFViewer: Updating existing Fabric.js canvas dimensions');
+           const annotationsCanvas = document.getElementById('annotations-canvas') as HTMLCanvasElement;
+           if (annotationsCanvas) {
+             annotationsCanvas.width = canvas.width;
+             annotationsCanvas.height = canvas.height;
+             annotationsCanvas.style.width = canvas.style.width;
+             annotationsCanvas.style.height = canvas.style.height;
+           }
+           
+           // Force container resize AFTER updating existing Fabric.js canvas
+           if (containerRef.current) {
+             const container = containerRef.current;
+             // Calculate the actual height needed based on the rendered PDF
+             const pdfHeight = finalViewport.height;
+             const padding = 40; // Just padding for the container, toolbar is in normal flow
+             const actualHeight = pdfHeight + padding;
+             
+             console.log(`PDFViewer: Setting container height AFTER updating Fabric.js to ${actualHeight}px (PDF: ${pdfHeight}px + padding: ${padding}px)`);
+             
+             // Let the container size itself naturally
+             console.log(`PDFViewer: Container will size naturally based on content`);
+             
+             // Clear any previous explicit sizing
+             container.style.height = '';
+             container.style.minHeight = '';
+             container.style.maxHeight = '';
+             
+             // Force a reflow to ensure proper sizing
+             container.offsetHeight;
+             
+             // Container will size naturally based on content
+           }
           
           fabricCanvasRef.current.renderOnAddRemove = false;
           fabricCanvasRef.current.setDimensions({
@@ -414,7 +480,7 @@ function PDFViewerComponent({
         // The canvas will show the PDF but won't support annotations
       }
 
-      console.log('PDFViewer: Page rendering completed successfully');
+             console.log('PDFViewer: Page rendering completed successfully');
 
     } catch (error) {
       if (error.name !== 'RenderingCancelledException') {
@@ -922,41 +988,49 @@ function PDFViewerComponent({
     }
   };
 
-  const goToPreviousPage = () => {
+  const goToPreviousPage = useCallback(() => {
     if (currentPage > 1) {
       const newPage = currentPage - 1;
       setCurrentPage(newPage);
       renderPage(newPage);
     }
-  };
+  }, [currentPage, renderPage]);
 
-  const goToNextPage = () => {
+  const goToNextPage = useCallback(() => {
     if (currentPage < totalPages) {
       const newPage = currentPage + 1;
       setCurrentPage(newPage);
       renderPage(newPage);
     }
-  };
+  }, [currentPage, totalPages, renderPage]);
 
-  const zoomIn = () => {
-    const newScale = Math.min(scale * 1.25, 3.0);
+  // Reset pan position
+  const resetPan = useCallback(() => {
+    setPanPosition({ x: 0, y: 0 });
+  }, []);
+
+  const zoomIn = useCallback(() => {
+    const newScale = Math.min(scaleRef.current * 1.25, 3.0);
+    scaleRef.current = newScale;
     setScale(newScale);
+    resetPan();
     console.log('PDFViewer: Zooming in to:', newScale);
-    renderPage(currentPage);
-  };
+  }, [resetPan]);
 
-  const zoomOut = () => {
-    const newScale = Math.max(scale * 0.8, 0.25);
+  const zoomOut = useCallback(() => {
+    const newScale = Math.max(scaleRef.current * 0.8, 0.25);
+    scaleRef.current = newScale;
     setScale(newScale);
+    resetPan();
     console.log('PDFViewer: Zooming out to:', newScale);
-    renderPage(currentPage);
-  };
+  }, [resetPan]);
 
-  const resetZoom = () => {
+  const resetZoom = useCallback(() => {
+    scaleRef.current = 1.0;
     setScale(1.0);
+    resetPan();
     console.log('PDFViewer: Resetting zoom to fit screen');
-    renderPage(currentPage);
-  };
+  }, [resetPan]);
 
   useEffect(() => {
     if (fileUrl) {
@@ -983,6 +1057,8 @@ function PDFViewerComponent({
     }
   }, [canvasRef.current]);
 
+
+
   useEffect(() => {
     if (fabricCanvasRef.current) {
       fabricCanvasRef.current.selection = activeTool === 'select';
@@ -990,131 +1066,97 @@ function PDFViewerComponent({
     }
   }, [activeTool]);
 
+  // Handle scale changes and re-render when scale updates
   useEffect(() => {
+    if (pdfDocRef.current && currentPage > 0) {
+      // Use a small delay to ensure state is fully updated
+      const timeoutId = setTimeout(() => {
+        renderPage(currentPage);
+      }, 50);
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [scale, currentPage]);
+
+  useEffect(() => {
+    setIsClient(true);
     return () => {
       fabricCanvasRef.current?.dispose();
     };
   }, []);
 
+  // Notify parent of control changes
+  useEffect(() => {
+    if (onPDFControlsChange && totalPages > 0) {
+      onPDFControlsChange({
+        currentPage,
+        totalPages,
+        scale,
+        goToPreviousPage,
+        goToNextPage,
+        zoomIn,
+        zoomOut,
+        resetZoom
+      });
+    }
+  }, [onPDFControlsChange, currentPage, totalPages, scale, goToPreviousPage, goToNextPage, zoomIn, zoomOut, resetZoom]);
+
+  // Drag and pan handlers
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (activeTool === 'select') {
+      setIsDragging(true);
+      setDragStart({ x: e.clientX - panPosition.x, y: e.clientY - panPosition.y });
+      e.preventDefault();
+    }
+  }, [activeTool, panPosition]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (isDragging && activeTool === 'select') {
+      setPanPosition({
+        x: e.clientX - dragStart.x,
+        y: e.clientY - dragStart.y
+      });
+    }
+  }, [isDragging, dragStart, activeTool]);
+
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+
+
   return (
-    <div className={`pdf-viewer-container ${className}`} ref={containerRef}>
-      {/* Toolbar */}
-      <div className="pdf-toolbar bg-white border-b border-gray-300 p-3 flex items-center justify-between">
-        <div className="flex items-center space-x-4">
-          {/* Navigation */}
-          <div className="flex items-center space-x-2 bg-gray-100 rounded-lg p-1">
-            <button
-              onClick={goToPreviousPage}
-              disabled={currentPage <= 1}
-              className="p-2 text-gray-700 rounded disabled:text-gray-400 hover:bg-gray-200 transition-colors disabled:hover:bg-transparent"
-              title="Previous page"
-            >
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
-              </svg>
-            </button>
-            <span className="text-sm text-gray-600 px-2 font-mono">
-              {currentPage} / {totalPages}
-            </span>
-            <button
-              onClick={goToNextPage}
-              disabled={currentPage >= totalPages}
-              className="p-2 text-gray-700 rounded disabled:text-gray-400 hover:bg-gray-200 transition-colors disabled:hover:bg-transparent"
-              title="Next page"
-            >
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-              </svg>
-            </button>
-          </div>
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      {/* PDF Viewer Container */}
+      <div className={`pdf-viewer-container group ${className}`} ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
 
-          <div className="border-l border-gray-300 h-6"></div>
-
-          {/* Zoom controls */}
-          <div className="flex items-center space-x-2 bg-gray-100 rounded-lg p-1">
-            <button 
-              onClick={zoomOut} 
-              className="p-2 text-gray-700 rounded hover:bg-gray-200 transition-colors"
-              title="Zoom out"
-            >
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
-              </svg>
-            </button>
-            <span className="text-sm text-gray-600 px-2 font-mono min-w-12 text-center">
-              {Math.round(scale * 100)}%
-            </span>
-            <button 
-              onClick={zoomIn} 
-              className="p-2 text-gray-700 rounded hover:bg-gray-200 transition-colors"
-              title="Zoom in"
-            >
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
-              </svg>
-            </button>
-            <button 
-              onClick={resetZoom} 
-              className="px-3 py-2 text-gray-600 text-xs rounded hover:bg-gray-200 hover:text-gray-800 transition-colors"
-              title="Reset zoom"
-            >
-              Fit
-            </button>
-          </div>
-        </div>
-
-        {!readOnly && (
-          <div className="flex items-center space-x-2">
-            {/* Markup tools */}
-            <button
-              onClick={() => setActiveTool('select')}
-              className={`px-3 py-1 rounded ${activeTool === 'select' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
-            >
-              Select
-            </button>
-            <button
-              onClick={() => setActiveTool('text')}
-              className={`px-3 py-1 rounded ${activeTool === 'text' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
-            >
-              Text
-            </button>
-            <button
-              onClick={() => setActiveTool('rectangle')}
-              className={`px-3 py-1 rounded ${activeTool === 'rectangle' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
-            >
-              Rectangle
-            </button>
-            <button
-              onClick={() => setActiveTool('circle')}
-              className={`px-3 py-1 rounded ${activeTool === 'circle' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
-            >
-              Circle
-            </button>
-            <button
-              onClick={() => setActiveTool('arrow')}
-              className={`px-3 py-1 rounded ${activeTool === 'arrow' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
-            >
-              Arrow
-            </button>
-            <button
-              onClick={() => setActiveTool('freehand')}
-              className={`px-3 py-1 rounded ${activeTool === 'freehand' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
-            >
-              Draw
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* PDF Display Area */}
-      <div className="pdf-display-area flex-1 overflow-auto bg-gray-100 p-4 relative">
+                                                       {/* PDF Display Area */}
+         <div className="pdf-display-area overflow-hidden relative" 
+              style={{ 
+                width: '100%', 
+                height: 'calc(100vh - 120px)', 
+                zIndex: 1, 
+                cursor: isDragging ? 'grabbing' : 'grab' 
+              }}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseLeave}>
         {/* Canvas is always present */}
         <div className="flex justify-center">
-          <div className="relative">
+          <div className="relative p-2" style={{ 
+            transform: `translate(${panPosition.x}px, ${panPosition.y}px)`,
+            transition: isDragging ? 'none' : 'transform 0.1s ease-out'
+          }}>
             {/* PDF Canvas - This is where PDF.js renders */}
             <canvas
               ref={canvasRef}
-              className="border border-gray-300 shadow-lg bg-white rounded max-w-full h-auto"
+              className="border border-gray-300 shadow-lg bg-white rounded max-w-full"
+              style={{ display: 'block' }}
             />
             {/* Annotations Canvas - This is where Fabric.js renders */}
             <canvas
@@ -1184,6 +1226,9 @@ function PDFViewerComponent({
           </div>
         )}
       </div>
+      </div>
+      
+
     </div>
   );
 }

@@ -302,7 +302,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         {/* Main content area - Scrollable */}
         <div 
-          className="flex-1 overflow-y-scroll custom-scrollbar"
+          className={`flex-1 custom-scrollbar ${pathname === '/dashboard/markups' ? 'overflow-hidden' : 'overflow-y-scroll'}`}
           style={{ paddingTop: '4rem' }}
         >
           <motion.div

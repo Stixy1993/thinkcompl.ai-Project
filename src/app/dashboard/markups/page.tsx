@@ -15,7 +15,7 @@ export default function MarkupsPage() {
   const [selectedAnnotation, setSelectedAnnotation] = useState<string | null>(null);
   const [activeTool, setActiveTool] = useState<string>('select');
   const [toolProperties, setToolProperties] = useState({
-    color: '#ff0000',
+    color: '#000000',
     strokeWidth: 2,
     opacity: 1.0
   });
@@ -44,6 +44,8 @@ export default function MarkupsPage() {
     zoomIn: () => void;
     zoomOut: () => void;
     resetZoom: () => void;
+    undo: () => void;
+    redo: () => void;
   } | null>(null);
 
 
@@ -217,9 +219,19 @@ Common Issues:
                 onAnnotationAdd={(annotation) => setAnnotations(prev => [...prev, annotation])}
                 onAnnotationUpdate={(annotation) => setAnnotations(prev => prev.map(a => a.id === annotation.id ? annotation : a))}
                 onAnnotationDelete={(id) => setAnnotations(prev => prev.filter(a => a.id !== id))}
-                onPDFControlsChange={setPdfControls}
+                onPDFControlsChange={(controls) => {
+                  setPdfControls(controls);
+                  // Handle tool change requests from PDFViewer
+                  if (controls.activeTool && controls.activeTool !== activeTool) {
+                    console.log('📝 Parent: Tool change requested:', controls.activeTool);
+                    setActiveTool(controls.activeTool);
+                  }
+                }}
+                activeTool={activeTool as any}
+                toolProperties={toolProperties}
                 className="w-full"
               />
+
               
               {/* Revision Cloud Comment Box Overlay */}
               {showCommentBox && (
@@ -343,7 +355,7 @@ Common Issues:
                   {/* Color Property - Moved to top */}
                   <div>
                     <div className="grid grid-cols-4 gap-2 justify-items-center">
-                      {['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#000000', '#ffffff'].map((color) => (
+                      {['#000000', '#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#ffffff'].map((color) => (
                         <div
                           key={color}
                           className={`w-8 h-8 rounded-lg border-2 cursor-pointer hover:scale-105 transition-transform ${
@@ -515,6 +527,32 @@ Common Issues:
           }}
         >
           <div className="bg-black/90 backdrop-blur-md border border-white/30 rounded-2xl shadow-2xl p-3 flex items-center space-x-4">
+            {/* Undo/Redo */}
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={pdfControls?.undo || (() => {})}
+                className="p-2 text-white/90 hover:text-white rounded-lg hover:bg-white/15 transition-all duration-200"
+                title="Undo (Ctrl+Z)"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                </svg>
+              </button>
+              
+              <button
+                onClick={pdfControls?.redo || (() => {})}
+                className="p-2 text-white/90 hover:text-white rounded-lg hover:bg-white/15 transition-all duration-200"
+                title="Redo (Ctrl+Y)"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 10H11a8 8 0 00-8 8v2m18-10l-6 6m6-6l-6-6" />
+                </svg>
+              </button>
+            </div>
+            
+            {/* Divider */}
+            <div className="w-px h-6 bg-white/20"></div>
+            
             {/* Navigation */}
             <div className="flex items-center space-x-2">
               <button

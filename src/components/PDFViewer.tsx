@@ -5,34 +5,74 @@ import { useHotkeys } from 'react-hotkeys-hook';
 import { v4 as uuidv4 } from 'uuid';
 import dynamic from 'next/dynamic';
 
+// Extend Window interface for CDN-loaded libraries
+declare global {
+  interface Window {
+    pdfjsLib: any;
+    fabric: any;
+  }
+}
+
 // Dynamically import PDF.js and Fabric.js only on client-side
 let pdfjs: any = null;
 let fabric: any = null;
 
-if (typeof window !== 'undefined') {
-  try {
-    pdfjs = require('pdfjs-dist');
-    fabric = require('fabric').fabric;
-    console.log('PDF.js and Fabric.js loaded successfully');
-  } catch (error) {
-    console.error('Failed to load PDF.js or Fabric.js:', error);
-  }
-}
+// Function to load libraries from CDN
+const loadLibrariesFromCDN = async (): Promise<{ pdfjs: any; fabric: any }> => {
+  return new Promise((resolve) => {
+    let pdfjsLoaded = false;
+    let fabricLoaded = false;
+    
+    const checkBothLoaded = () => {
+      if (pdfjsLoaded && fabricLoaded) {
+        console.log('Both PDF.js and Fabric.js loaded successfully from CDN');
+        resolve({ pdfjs, fabric });
+      }
+    };
 
-// PDF.js worker setup
-if (typeof window !== 'undefined') {
-  // Use a local worker file to avoid configuration errors
-  console.log('PDF.js: Setting up local worker configuration');
-  try {
-    // Use the worker file from node_modules that we know exists
-    pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
-    console.log('PDF.js: Worker configured successfully');
-  } catch (error) {
-    console.error('PDF.js: Failed to configure worker:', error);
-    // Fallback: try to disable worker completely
-    pdfjs.GlobalWorkerOptions.workerSrc = null;
-  }
-}
+    // Load PDF.js from CDN
+    if (!window.pdfjsLib) {
+      const pdfjsScript = document.createElement('script');
+      pdfjsScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+      pdfjsScript.onload = () => {
+        pdfjs = window.pdfjsLib;
+        console.log('PDF.js loaded from CDN');
+        
+        // Configure PDF.js worker
+        if (pdfjs && pdfjs.GlobalWorkerOptions) {
+          pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+          console.log('PDF.js worker configured');
+        }
+        pdfjsLoaded = true;
+        checkBothLoaded();
+      };
+      document.head.appendChild(pdfjsScript);
+    } else {
+      pdfjs = window.pdfjsLib;
+      pdfjsLoaded = true;
+      checkBothLoaded();
+    }
+
+    // Load Fabric.js from CDN
+    if (!window.fabric) {
+      const fabricScript = document.createElement('script');
+      fabricScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js';
+      fabricScript.onload = () => {
+        fabric = window.fabric;
+        console.log('Fabric.js loaded from CDN');
+        fabricLoaded = true;
+        checkBothLoaded();
+      };
+      document.head.appendChild(fabricScript);
+    } else {
+      fabric = window.fabric;
+      fabricLoaded = true;
+      checkBothLoaded();
+    }
+  });
+};
+
+// PDF.js worker setup is now handled in the CDN loading section above
 
 export interface Annotation {
   id: string;
@@ -47,6 +87,7 @@ export interface Annotation {
   strokeWidth: number;
   text?: string;
   fontSize?: number;
+  fontWeight?: number;
   fontFamily?: string;
   opacity: number;
   author: string;
@@ -83,6 +124,8 @@ interface PDFViewerProps {
     color: string;
     strokeWidth: number;
     opacity: number;
+    fontSize?: number;
+    fontWeight?: number;
   };
   onPDFControlsChange?: (controls: {
     currentPage: number;
@@ -127,7 +170,9 @@ function PDFViewerComponent({
   const toolProperties = externalToolProperties || {
     color: '#000000',
     strokeWidth: 2,
-    opacity: 1.0
+    opacity: 1.0,
+    fontSize: 12,
+    fontWeight: 400
   };
   const [isLoading, setIsLoading] = useState(false);
   const [isRendering, setIsRendering] = useState(false);
@@ -171,14 +216,30 @@ function PDFViewerComponent({
 
   const loadPDF = useCallback(async (url: string) => {
     console.log('PDFViewer: loadPDF called with URL:', url);
-    console.log('PDFViewer: pdfjs available:', !!pdfjs);
-    console.log('PDFViewer: fabric available:', !!fabric);
     
     if (!url) {
       console.error('PDFViewer: No URL provided');
       setError('No PDF URL provided');
       return;
     }
+    
+    // Load libraries if not already loaded
+    if (!pdfjs || !fabric) {
+      console.log('PDFViewer: Libraries not loaded, loading from CDN...');
+      try {
+        const libraries = await loadLibrariesFromCDN();
+        pdfjs = libraries.pdfjs;
+        fabric = libraries.fabric;
+        console.log('PDFViewer: Libraries loaded successfully');
+      } catch (error) {
+        console.error('PDFViewer: Failed to load libraries:', error);
+        setError('Failed to load required libraries. Please refresh the page.');
+        return;
+      }
+    }
+    
+    console.log('PDFViewer: pdfjs available:', !!pdfjs);
+    console.log('PDFViewer: fabric available:', !!fabric);
     
     if (!pdfjs) {
       console.error('PDFViewer: PDF.js not available');
@@ -833,8 +894,10 @@ function PDFViewerComponent({
     const text = new (fabric as any).IText('Click to edit', {
       left: x,
       top: y,
-      fontSize: 16,
-      fill: '#000000',
+      fontSize: toolProperties.fontSize || 12,
+      fontWeight: toolProperties.fontWeight || 400,
+      fill: toolProperties.color,
+      opacity: toolProperties.opacity || 1.0,
       selectable: true,
       editable: true,
       data: {
@@ -1065,6 +1128,7 @@ function PDFViewerComponent({
       strokeWidth: (obj as any).strokeWidth || 2,
       text: (obj as any).text || '',
       fontSize: obj.data?.originalFontSize || (obj as any).fontSize || 16,
+      fontWeight: (obj as any).fontWeight || 400,
       fontFamily: (obj as any).fontFamily || 'Arial',
       opacity: obj.opacity || 1,
       author: 'Current User', // This should come from auth context
@@ -1148,7 +1212,8 @@ function PDFViewerComponent({
             top: obj.data.originalY * scaleFactor,
             width: obj.data.originalWidth * scaleFactor,
             height: obj.data.originalHeight * scaleFactor,
-            fontSize: obj.data.originalFontSize ? obj.data.originalFontSize * scaleFactor : obj.fontSize
+            fontSize: obj.data.originalFontSize ? obj.data.originalFontSize * scaleFactor : obj.fontSize,
+            fontWeight: obj.data.originalFontWeight || obj.fontWeight || 400
           });
           
           if (obj.type === 'circle') {
@@ -1234,6 +1299,7 @@ function PDFViewerComponent({
             left: annotation.x * scaleFactor,
             top: annotation.y * scaleFactor,
             fontSize: (annotation.fontSize || 16) * scaleFactor,
+            fontWeight: annotation.fontWeight || 400,
             fontFamily: annotation.fontFamily || 'Arial',
             fill: annotation.strokeColor,
             opacity: annotation.opacity,
@@ -1248,7 +1314,8 @@ function PDFViewerComponent({
               originalY: annotation.y,
               originalWidth: annotation.width,
               originalHeight: annotation.height,
-              originalFontSize: annotation.fontSize || 16
+              originalFontSize: annotation.fontSize || 16,
+              originalFontWeight: annotation.fontWeight || 400
             }
           });
           break;
@@ -1477,6 +1544,20 @@ function PDFViewerComponent({
     }
   }, [resetPan, currentPage, renderPage]);
 
+  // Preload libraries when component mounts
+  useEffect(() => {
+    if (typeof window !== 'undefined' && (!pdfjs || !fabric)) {
+      console.log('PDFViewer: Preloading libraries...');
+      loadLibrariesFromCDN().then((libraries) => {
+        pdfjs = libraries.pdfjs;
+        fabric = libraries.fabric;
+        console.log('PDFViewer: Libraries preloaded successfully');
+      }).catch((error) => {
+        console.error('PDFViewer: Failed to preload libraries:', error);
+      });
+    }
+  }, []);
+
   useEffect(() => {
     console.log('PDFViewer: useEffect triggered with fileUrl:', fileUrl);
     if (fileUrl) {
@@ -1613,12 +1694,13 @@ function PDFViewerComponent({
           saveCanvasState();
           
           // Create text box with placeholder text that gets properly replaced
-          const textObj = new (fabric as any).IText('Type text here', {
-            left: pointer.x,
-            top: pointer.y,
-            fontSize: 16,
-            fill: '#999999', // Start with grey placeholder
-            fontWeight: 'normal',
+                     const textObj = new (fabric as any).IText('Type text here', {
+             left: pointer.x,
+             top: pointer.y,
+             fontSize: toolProperties.fontSize || 12,
+             fill: '#999999', // Start with grey placeholder
+             fontWeight: toolProperties.fontWeight || 400,
+             opacity: toolProperties.opacity || 1.0,
             fontFamily: 'Arial, sans-serif',
             fontStyle: 'normal',
             selectable: true,
@@ -1645,7 +1727,8 @@ function PDFViewerComponent({
               originalY: pointer.y / scaleRef.current,
               originalWidth: 100 / scaleRef.current, // Approximate text width
               originalHeight: 20 / scaleRef.current, // Approximate text height
-              originalFontSize: 16 / scaleRef.current
+              originalFontSize: (toolProperties.fontSize || 12) / scaleRef.current,
+              originalFontWeight: toolProperties.fontWeight || 400
             }
           });
           
@@ -1804,12 +1887,22 @@ function PDFViewerComponent({
         console.log('📝 Updating object type:', activeObject.type, 'isPlaceholder:', activeObject.data?.isPlaceholder);
         
         // Update the active object with new properties
-        if (activeObject.type === 'i-text' || activeObject.type === 'text') {
-          // For text objects, always update color (even for placeholder)
-          console.log('✏️ Setting text color to:', toolProperties.color);
-          activeObject.set('fill', toolProperties.color);
-          canvas.renderAll();
-        } else {
+                 if (activeObject.type === 'i-text' || activeObject.type === 'text') {
+           // For text objects, update color, fontSize, fontWeight, and opacity
+           console.log('✏️ Setting text properties:', {
+             color: toolProperties.color,
+             fontSize: toolProperties.fontSize,
+             fontWeight: toolProperties.fontWeight,
+             opacity: toolProperties.opacity
+           });
+           activeObject.set({
+             fill: toolProperties.color,
+             fontSize: toolProperties.fontSize || 12,
+             fontWeight: toolProperties.fontWeight || 400,
+             opacity: toolProperties.opacity || 1.0
+           });
+           canvas.renderAll();
+         } else {
           // For shapes, update color and other properties
           console.log('🔲 Setting shape color to:', toolProperties.color);
           activeObject.set({

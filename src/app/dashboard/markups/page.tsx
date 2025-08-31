@@ -14,10 +14,13 @@ export default function MarkupsPage() {
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [selectedAnnotation, setSelectedAnnotation] = useState<string | null>(null);
   const [activeTool, setActiveTool] = useState<string>('select');
+  const [lastActiveTool, setLastActiveTool] = useState<string>('select'); // Track the last non-select tool
   const [toolProperties, setToolProperties] = useState({
     color: '#000000',
-    strokeWidth: 2,
-    opacity: 1.0
+    strokeWidth: 1.0, // More visible default stroke width (0.01px to 5px range)
+    opacity: 1.0,
+    fontSize: 12, // Smaller default font size
+    fontWeight: 400 // Default font weight (normal)
   });
   const [showFileBrowser, setShowFileBrowser] = useState(false);
   const [revisionClouds, setRevisionClouds] = useState<Array<{
@@ -219,14 +222,18 @@ Common Issues:
                 onAnnotationAdd={(annotation) => setAnnotations(prev => [...prev, annotation])}
                 onAnnotationUpdate={(annotation) => setAnnotations(prev => prev.map(a => a.id === annotation.id ? annotation : a))}
                 onAnnotationDelete={(id) => setAnnotations(prev => prev.filter(a => a.id !== id))}
-                onPDFControlsChange={(controls) => {
-                  setPdfControls(controls);
-                  // Handle tool change requests from PDFViewer
-                  if (controls.activeTool && controls.activeTool !== activeTool) {
-                    console.log('📝 Parent: Tool change requested:', controls.activeTool);
-                    setActiveTool(controls.activeTool);
-                  }
-                }}
+                                 onPDFControlsChange={(controls) => {
+                   setPdfControls(controls);
+                   // Handle tool change requests from PDFViewer
+                   if (controls.activeTool && controls.activeTool !== activeTool) {
+                     console.log('📝 Parent: Tool change requested:', controls.activeTool);
+                     setActiveTool(controls.activeTool);
+                     // Track the last non-select tool for property panel display
+                     if (controls.activeTool !== 'select') {
+                       setLastActiveTool(controls.activeTool);
+                     }
+                   }
+                 }}
                 activeTool={activeTool as any}
                 toolProperties={toolProperties}
                 className="w-full"
@@ -352,7 +359,7 @@ Common Issues:
             <div className="properties-panel absolute right-full bottom-0 w-64 bg-white border border-gray-200 shadow-lg rounded-lg z-50" style={{ bottom: '-20px' }}>
               <div className="p-4 pb-6">
                 <div className="space-y-3">
-                  {/* Color Property - Moved to top */}
+                  {/* Color Property - Always show */}
                   <div>
                     <div className="grid grid-cols-4 gap-2 justify-items-center">
                       {['#000000', '#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#ffffff'].map((color) => (
@@ -368,42 +375,95 @@ Common Issues:
                     </div>
                   </div>
                   
-                  {/* Line Width Property */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                        Line Width
-                      </label>
-                      <span className="text-xs text-gray-500">{toolProperties.strokeWidth}px</span>
+                  {/* Line Width Property - Only for shape tools and freehand */}
+                  {((activeTool === 'rectangle' || activeTool === 'circle' || activeTool === 'arrow' || activeTool === 'freehand') || 
+                    (activeTool === 'select' && (lastActiveTool === 'rectangle' || lastActiveTool === 'circle' || lastActiveTool === 'arrow' || lastActiveTool === 'freehand'))) && (
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                          Line Width
+                        </label>
+                        <span className="text-xs text-gray-500">{toolProperties.strokeWidth.toFixed(2)}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0.01"
+                        max="5"
+                        step="0.01"
+                        value={toolProperties.strokeWidth}
+                        onChange={(e) => setToolProperties(prev => ({ ...prev, strokeWidth: parseFloat(e.target.value) }))}
+                        className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                      />
                     </div>
-                    <input
-                      type="range"
-                      min="1"
-                      max="20"
-                      value={toolProperties.strokeWidth}
-                      onChange={(e) => setToolProperties(prev => ({ ...prev, strokeWidth: parseInt(e.target.value) }))}
-                      className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
-                    />
-                  </div>
+                  )}
                   
-                  {/* Opacity Property */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                        Opacity
-                      </label>
-                      <span className="text-xs text-gray-500">{Math.round(toolProperties.opacity * 100)}%</span>
+                  {/* Text Size Property - Only for text tool */}
+                  {(activeTool === 'text' || (activeTool === 'select' && lastActiveTool === 'text')) && (
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                          Text Size
+                        </label>
+                        <span className="text-xs text-gray-500">{toolProperties.fontSize}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="8"
+                        max="48"
+                        step="1"
+                        value={toolProperties.fontSize || 12}
+                        onChange={(e) => setToolProperties(prev => ({ ...prev, fontSize: parseInt(e.target.value) }))}
+                        className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                      />
                     </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.1"
-                      value={toolProperties.opacity}
-                      onChange={(e) => setToolProperties(prev => ({ ...prev, opacity: parseFloat(e.target.value) }))}
-                      className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
-                    />
-                  </div>
+                  )}
+                  
+                  {/* Text Weight Property - Only for text tool */}
+                  {(activeTool === 'text' || (activeTool === 'select' && lastActiveTool === 'text')) && (
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                          Text Weight
+                        </label>
+                        <span className="text-xs text-gray-500">{toolProperties.fontWeight}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="100"
+                        max="900"
+                        step="100"
+                        value={toolProperties.fontWeight || 400}
+                        onChange={(e) => setToolProperties(prev => ({ ...prev, fontWeight: parseInt(e.target.value) }))}
+                        className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                      />
+                      <div className="flex justify-between text-xs text-gray-400 mt-1">
+                        <span>Thin</span>
+                        <span>Normal</span>
+                        <span>Bold</span>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Opacity Property - Show for all tools except select */}
+                  {(activeTool !== 'select' || lastActiveTool !== 'select') && (
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                          Opacity
+                        </label>
+                        <span className="text-xs text-gray-500">{Math.round(toolProperties.opacity * 100)}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.1"
+                        value={toolProperties.opacity}
+                        onChange={(e) => setToolProperties(prev => ({ ...prev, opacity: parseFloat(e.target.value) }))}
+                        className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -416,7 +476,13 @@ Common Issues:
               {basicTools.map((tool) => (
                 <div key={tool.id} className="relative group">
                   <button
-                    onClick={() => setActiveTool(tool.id as string)}
+                    onClick={() => {
+                      setActiveTool(tool.id as string);
+                      // Track the last non-select tool for property panel display
+                      if (tool.id !== 'select') {
+                        setLastActiveTool(tool.id as string);
+                      }
+                    }}
                     className={`flex items-center justify-center rounded-lg text-gray-700 transition-colors duration-200 py-1.5 px-4 w-full ${
                       activeTool === tool.id ? "font-semibold text-blue-700" : ""
                     }`}
@@ -439,7 +505,13 @@ Common Issues:
               {bluebeamTools.map((tool) => (
                 <div key={tool.id} className="relative group">
                   <button
-                    onClick={() => setActiveTool(tool.id as string)}
+                    onClick={() => {
+                      setActiveTool(tool.id as string);
+                      // Track the last non-select tool for property panel display
+                      if (tool.id !== 'select') {
+                        setLastActiveTool(tool.id as string);
+                      }
+                    }}
                     className={`flex items-center justify-center rounded-lg text-gray-700 transition-colors duration-200 py-1.5 px-4 w-full ${
                       activeTool === tool.id ? "font-semibold text-blue-700" : ""
                     }`}
@@ -459,7 +531,7 @@ Common Issues:
             
             {/* Tool Properties - Integrated below tools */}
             <div className="mt-6 pt-6 border-t border-gray-200 space-y-3">
-              {/* Color Property */}
+              {/* Color Property - Always show */}
               <div className="relative group">
                 <div className="flex items-center justify-center">
                   <div 
@@ -475,39 +547,82 @@ Common Issues:
                 </div>
               </div>
               
-              {/* Line Width Property */}
-              <div className="relative group">
-                <div className="flex items-center justify-center">
-                  <div 
-                    className="tool-property w-8 h-8 rounded-lg border-2 border-gray-300 bg-gray-100 flex items-center justify-center cursor-pointer hover:bg-gray-200 transition-colors"
-                    onClick={() => setShowPropertiesPanel(true)}
-                  >
-                    <div className="text-xs font-bold text-gray-600">{toolProperties.strokeWidth}</div>
+              {/* Line Width Property - Only for shape tools and freehand */}
+              {((activeTool === 'rectangle' || activeTool === 'circle' || activeTool === 'arrow' || activeTool === 'freehand') || 
+                (activeTool === 'select' && (lastActiveTool === 'rectangle' || lastActiveTool === 'circle' || lastActiveTool === 'arrow' || lastActiveTool === 'freehand'))) && (
+                <div className="relative group">
+                  <div className="flex items-center justify-center">
+                    <div 
+                      className="tool-property w-8 h-8 rounded-lg border-2 border-gray-300 bg-gray-100 flex items-center justify-center cursor-pointer hover:bg-gray-200 transition-colors"
+                      onClick={() => setShowPropertiesPanel(true)}
+                    >
+                      <div className="text-xs font-bold text-gray-600">{toolProperties.strokeWidth.toFixed(2)}</div>
+                    </div>
+                  </div>
+                  {/* Custom Tooltip */}
+                  <div className="absolute right-full mr-6 top-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-70 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-[9999]">
+                    Line: {toolProperties.strokeWidth.toFixed(2)}px
+                    <div className="absolute right-0 top-1/2 transform -translate-y-1/2 translate-x-1 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-l-gray-900"></div>
                   </div>
                 </div>
-                {/* Custom Tooltip */}
-                <div className="absolute right-full mr-6 top-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-70 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-[9999]">
-                  Line: {toolProperties.strokeWidth}px
-                  <div className="absolute right-0 top-1/2 transform -translate-y-1/2 translate-x-1 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-l-gray-900"></div>
-                </div>
-              </div>
+              )}
               
-              {/* Opacity Property */}
-              <div className="relative group">
-                <div className="flex items-center justify-center">
-                  <div 
-                    className="tool-property w-8 h-8 rounded-lg border-2 border-gray-300 bg-gray-100 flex items-center justify-center cursor-pointer hover:bg-gray-200 transition-colors"
-                    onClick={() => setShowPropertiesPanel(true)}
-                  >
-                    <div className="text-xs font-bold text-gray-600">{Math.round(toolProperties.opacity * 100)}%</div>
+              {/* Text Size Property - Only for text tool */}
+              {(activeTool === 'text' || (activeTool === 'select' && lastActiveTool === 'text')) && (
+                <div className="relative group">
+                  <div className="flex items-center justify-center">
+                    <div 
+                      className="tool-property w-8 h-8 rounded-lg border-2 border-gray-300 bg-gray-100 flex items-center justify-center cursor-pointer hover:bg-gray-200 transition-colors"
+                      onClick={() => setShowPropertiesPanel(true)}
+                    >
+                      <div className="text-xs font-bold text-gray-600">{toolProperties.fontSize}</div>
+                    </div>
+                  </div>
+                  {/* Custom Tooltip */}
+                  <div className="absolute right-full mr-6 top-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-70 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-[9999]">
+                    Text Size: {toolProperties.fontSize}px
+                    <div className="absolute right-0 top-1/2 transform -translate-y-1/2 translate-x-1 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-l-gray-900"></div>
                   </div>
                 </div>
-                {/* Custom Tooltip */}
-                <div className="absolute right-full mr-6 top-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-70 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-[9999]">
-                  Opacity: {Math.round(toolProperties.opacity * 100)}%
-                  <div className="absolute right-0 top-1/2 transform -translate-y-1/2 translate-x-1 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-l-gray-900"></div>
+              )}
+              
+              {/* Text Weight Property - Only for text tool */}
+              {(activeTool === 'text' || (activeTool === 'select' && lastActiveTool === 'text')) && (
+                <div className="relative group">
+                  <div className="flex items-center justify-center">
+                    <div 
+                      className="tool-property w-8 h-8 rounded-lg border-2 border-gray-300 bg-gray-100 flex items-center justify-center cursor-pointer hover:bg-gray-200 transition-colors"
+                      onClick={() => setShowPropertiesPanel(true)}
+                    >
+                      <div className="text-xs font-bold text-gray-600" style={{ fontWeight: toolProperties.fontWeight }}>A</div>
+                    </div>
+                  </div>
+                  {/* Custom Tooltip */}
+                  <div className="absolute right-full mr-6 top-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-70 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-[9999]">
+                    Text Weight: {toolProperties.fontWeight}
+                    <div className="absolute right-0 top-1/2 transform -translate-y-1/2 translate-x-1 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-l-gray-900"></div>
+                  </div>
                 </div>
-              </div>
+              )}
+              
+              {/* Opacity Property - Show for all tools except select */}
+              {(activeTool !== 'select' || lastActiveTool !== 'select') && (
+                <div className="relative group">
+                  <div className="flex items-center justify-center">
+                    <div 
+                      className="tool-property w-8 h-8 rounded-lg border-2 border-gray-300 bg-gray-100 flex items-center justify-center cursor-pointer hover:bg-gray-200 transition-colors"
+                      onClick={() => setShowPropertiesPanel(true)}
+                    >
+                      <div className="text-xs font-bold text-gray-600">{Math.round(toolProperties.opacity * 100)}%</div>
+                    </div>
+                  </div>
+                  {/* Custom Tooltip */}
+                  <div className="absolute right-full mr-6 top-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-70 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-[9999]">
+                    Opacity: {Math.round(toolProperties.opacity * 100)}%
+                    <div className="absolute right-0 top-1/2 transform -translate-y-1/2 translate-x-1 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-l-gray-900"></div>
+                  </div>
+                </div>
+              )}
             </div>
           </nav>
         </div>

@@ -8,6 +8,7 @@ export interface ToolProperties {
   opacity: number;
   fontSize?: number;
   fontWeight?: number;
+  scallopSize?: number; // New property for cloud scallop size
 }
 
 export interface ToolHandler {
@@ -46,6 +47,88 @@ export class ToolManager {
   setToolProperties(properties: ToolProperties) {
     this.toolProperties = properties;
     this.updateBrushProperties();
+    this.updateExistingShapes();
+  }
+
+  private updateExistingShapes() {
+    if (!this.canvas) return;
+
+    console.log('🔄 Updating existing shapes with properties:', this.toolProperties);
+
+    // Update existing shapes to ensure they maintain transparent fill
+    const objects = this.canvas.getObjects();
+    console.log('📊 Found', objects.length, 'objects on canvas');
+    
+    objects.forEach((obj: any) => {
+      if (obj.data?.isAnnotation) {
+        console.log('🎯 Processing annotation:', obj.data.type, obj.data.isPreview ? '(preview)' : '(final)');
+        
+        if (obj.data?.type === 'cloud' && !obj.data?.isPreview) {
+          // For cloud shapes, we need to recreate them with new scallop size
+          // Only update final clouds, not preview clouds
+          console.log('☁️ Updating cloud shape');
+          this.updateCloudShape(obj);
+        } else if (obj.data?.type !== 'cloud') {
+          // For other shapes, just update stroke properties
+          console.log('🎨 Updating stroke properties for', obj.data.type);
+          obj.set({
+            stroke: this.toolProperties.color,
+            strokeWidth: this.toolProperties.strokeWidth,
+            opacity: this.toolProperties.opacity,
+            fill: 'transparent' // Ensure fill stays transparent
+          });
+        }
+      }
+    });
+    
+    this.canvas.renderAll();
+    console.log('✅ Finished updating existing shapes');
+  }
+
+  private updateCloudShape(cloudObj: any) {
+    try {
+      // Use the original size stored in data, not the current bounds
+      // This prevents the shape from changing size when scallop size changes
+      const originalSize = cloudObj.data?.originalSize || 20;
+      
+      console.log('☁️ Updating cloud shape:', { originalSize, scallopSize: this.toolProperties.scallopSize });
+      
+      // Create new cloud with updated properties but same original dimensions
+      const newCloud = this.createCloudShape(originalSize, this.toolProperties);
+      
+      // Copy the original cloud's properties (except the path data)
+      newCloud.set({
+        left: cloudObj.left,
+        top: cloudObj.top,
+        scaleX: cloudObj.scaleX || 1, // Preserve any scaling
+        scaleY: cloudObj.scaleY || 1, // Preserve any scaling
+        selectable: cloudObj.selectable,
+        evented: cloudObj.evented,
+        hasControls: cloudObj.hasControls,
+        hasBorders: cloudObj.hasBorders,
+        lockScalingX: cloudObj.lockScalingX,
+        lockScalingY: cloudObj.lockScalingY,
+        lockRotation: cloudObj.lockRotation,
+        moveCursor: cloudObj.moveCursor,
+        hoverCursor: cloudObj.hoverCursor,
+        data: {
+          ...cloudObj.data,
+          originalSize: originalSize // Keep the original size unchanged
+        }
+      });
+      
+      // Replace the old cloud with the new one
+      const index = this.canvas.getObjects().indexOf(cloudObj);
+      if (index !== -1) {
+        this.canvas.remove(cloudObj);
+        this.canvas.insertAt(newCloud, index);
+        console.log('☁️ Cloud updated successfully');
+      } else {
+        console.error('☁️ Could not find cloud object in canvas');
+      }
+    } catch (error) {
+      console.error('☁️ Error updating cloud shape:', error);
+    }
   }
 
   private setupEventListeners() {
@@ -55,11 +138,24 @@ export class ToolManager {
     this.canvas.off('mouse:down');
     this.canvas.off('mouse:move');
     this.canvas.off('mouse:up');
+    this.canvas.off('object:modified');
 
     // Set up new listeners
     this.canvas.on('mouse:down', this.handleMouseDown.bind(this));
     this.canvas.on('mouse:move', this.handleMouseMove.bind(this));
     this.canvas.on('mouse:up', this.handleMouseUp.bind(this));
+    this.canvas.on('object:modified', this.handleObjectModified.bind(this));
+  }
+
+  private handleObjectModified(e: any) {
+    // Update the originalSize when a cloud is resized
+    const obj = e.target;
+    if (obj && obj.data?.isAnnotation && obj.data?.type === 'cloud') {
+      const bounds = obj.getBoundingRect();
+      const currentSize = Math.max(bounds.width, bounds.height);
+      obj.data.originalSize = currentSize;
+      console.log('☁️ Cloud resized, updated originalSize to:', currentSize);
+    }
   }
 
   private handleMouseDown(e: any) {
@@ -166,9 +262,9 @@ export class ToolManager {
         cursor: 'crosshair'
       },
       cloud: {
-        onMouseDown: this.handleShapeMouseDown.bind(this),
-        onMouseMove: this.handleShapeMouseMove.bind(this),
-        onMouseUp: this.handleShapeMouseUp.bind(this),
+        onMouseDown: this.handleCloudMouseDown.bind(this),
+        onMouseMove: this.handleCloudMouseMove.bind(this),
+        onMouseUp: this.handleCloudMouseUp.bind(this),
         cursor: 'crosshair'
       },
       stamp: {
@@ -554,7 +650,7 @@ export class ToolManager {
       top: this.startY,
       width: 0,
       height: 0,
-      fill: 'rgba(0, 0, 0, 0.01)', // Nearly transparent fill for selection
+      fill: 'transparent', // No fill - only stroke should be visible
       stroke: toolProperties.color,
       strokeWidth: toolProperties.strokeWidth,
       opacity: toolProperties.opacity,
@@ -613,7 +709,7 @@ export class ToolManager {
         lockRotation: false,
         moveCursor: 'grab',
         hoverCursor: 'grab',
-        fill: 'rgba(0, 0, 0, 0.01)', // Nearly transparent fill for selection
+        fill: 'transparent', // No fill - only stroke should be visible
         data: {
           isAnnotation: true,
           type: 'rectangle',
@@ -639,7 +735,7 @@ export class ToolManager {
       left: this.startX,
       top: this.startY,
       radius: 0,
-      fill: 'rgba(0, 0, 0, 0.01)', // Nearly transparent fill for selection
+      fill: 'transparent', // No fill - only stroke should be visible
       stroke: toolProperties.color,
       strokeWidth: toolProperties.strokeWidth,
       opacity: toolProperties.opacity,
@@ -695,7 +791,7 @@ export class ToolManager {
         lockRotation: false,
         moveCursor: 'grab',
         hoverCursor: 'grab',
-        fill: 'rgba(0, 0, 0, 0.01)', // Nearly transparent fill for selection
+        fill: 'transparent', // No fill - only stroke should be visible
         data: {
           isAnnotation: true,
           type: 'circle',
@@ -706,6 +802,273 @@ export class ToolManager {
       // Ensure the shape is immediately selectable
       this.canvas.setActiveObject(previewCircle);
       canvas.renderAll();
+    }
+  }
+
+  // Cloud Tool Handlers
+    private handleCloudMouseDown(e: any, canvas: fabric.Canvas, toolProperties: ToolProperties) {
+    console.log('☁️ Cloud mouse down');
+    const pointer = canvas.getPointer(e.e);
+    this.startX = pointer.x;
+    this.startY = pointer.y;
+    
+    // Create a temporary cloud object for preview
+    const cloud = this.createCloudShape(20, toolProperties);
+    cloud.set({
+      left: this.startX, // Position at click point (center origin)
+      top: this.startY,
+      selectable: false,
+      evented: false,
+      data: {
+        isAnnotation: true,
+        type: 'cloud',
+        isPreview: true
+      }
+    });
+    
+    canvas.add(cloud);
+    canvas.renderAll();
+  }
+
+  private handleCloudMouseMove(e: any, canvas: fabric.Canvas, toolProperties: ToolProperties) {
+    if (!this.isDrawing) return;
+    
+    const pointer = canvas.getPointer(e.e);
+    const objects = canvas.getObjects();
+    const previewCloud = objects.find(obj => obj.data?.isPreview && obj.data?.type === 'cloud');
+    
+    if (previewCloud) {
+      // Calculate size for square aspect ratio
+      const size = Math.max(
+        Math.abs(pointer.x - this.startX),
+        Math.abs(pointer.y - this.startY)
+      );
+      const minSize = 20; // Minimum size of 20
+      
+      // Remove the old cloud
+      canvas.remove(previewCloud);
+      
+      // Create new cloud with square aspect ratio
+      const newCloud = this.createCloudShape(size, toolProperties);
+      newCloud.set({
+        left: this.startX, // Position at start point (center origin)
+        top: this.startY,
+        selectable: false,
+        evented: false,
+        data: {
+          isAnnotation: true,
+          type: 'cloud',
+          isPreview: true
+        }
+      });
+      
+      canvas.add(newCloud);
+      canvas.renderAll();
+    }
+  }
+
+  private handleCloudMouseUp(e: any, canvas: fabric.Canvas, toolProperties: ToolProperties) {
+    console.log('☁️ Cloud mouse up');
+    if (!this.isDrawing) return;
+    
+    const pointer = canvas.getPointer(e.e);
+    const objects = canvas.getObjects();
+    const previewCloud = objects.find(obj => obj.data?.isPreview && obj.data?.type === 'cloud');
+    
+    if (previewCloud) {
+      // Calculate size for square aspect ratio
+      const size = Math.max(
+        Math.abs(pointer.x - this.startX),
+        Math.abs(pointer.y - this.startY)
+      );
+      const minSize = 20; // Minimum size of 20
+      
+      // Remove the preview cloud
+      canvas.remove(previewCloud);
+      
+             // Create final cloud with square aspect ratio
+       const finalCloud = this.createCloudShape(size, toolProperties);
+       finalCloud.set({
+         left: this.startX, // Position at start point (center origin)
+         top: this.startY,
+         selectable: true,
+         evented: true,
+         hasControls: true,
+         hasBorders: true,
+         lockScalingX: false,
+         lockScalingY: false,
+         lockRotation: false,
+         moveCursor: 'grab',
+         hoverCursor: 'grab',
+         data: {
+           isAnnotation: true,
+           type: 'cloud',
+           id: Date.now().toString(),
+           originalSize: size // Store the original size
+         }
+       });
+      
+      canvas.add(finalCloud);
+      
+      // Ensure the cloud is immediately selectable
+      this.canvas.setActiveObject(finalCloud);
+      canvas.renderAll();
+      
+      // Optionally prompt for text after cloud creation
+      setTimeout(() => {
+        const addText = confirm('Would you like to add text to this cloud?');
+        if (addText) {
+          this.addTextToCloud(finalCloud, canvas);
+        }
+      }, 100);
+    }
+  }
+
+  private addTextToCloud(cloud: any, canvas: fabric.Canvas) {
+    // Get cloud bounds
+    const cloudBounds = cloud.getBoundingRect();
+    const centerX = cloudBounds.left + cloudBounds.width / 2;
+    const centerY = cloudBounds.top + cloudBounds.height / 2;
+    
+    // Create text object
+    const textObj = new (fabric as any).IText('Revision text', {
+      left: centerX,
+      top: centerY,
+      fontSize: 12,
+      fill: '#000000',
+      fontWeight: 400,
+      opacity: 1.0,
+      fontFamily: 'Arial, sans-serif',
+      fontStyle: 'normal',
+      selectable: true,
+      editable: true,
+      evented: true,
+      moveCursor: 'grab',
+      hoverCursor: 'grab',
+      backgroundColor: 'rgba(255, 255, 255, 0.9)',
+      stroke: '',
+      strokeWidth: 0,
+      padding: 4,
+      hasControls: false,
+      hasBorders: true,
+      borderColor: '#3B82F6',
+      lockScalingX: true,
+      lockScalingY: true,
+      originX: 'center',
+      originY: 'center',
+      data: {
+        isAnnotation: true,
+        type: 'text',
+        id: Date.now().toString(),
+        cloudId: cloud.data.id
+      }
+    });
+    
+    canvas.add(textObj);
+    canvas.setActiveObject(textObj);
+    canvas.renderAll();
+  }
+
+  private createCloudShape(size: number, toolProperties: ToolProperties) {
+    // Create a square cloud shape with consistent scallops
+    const baseSize = Math.max(size, 20); // Minimum size of 20
+    
+    // Use the passed toolProperties or fall back to the instance's toolProperties
+    const properties = toolProperties || this.toolProperties;
+    const scallopRadius = properties.scallopSize || 8; // Use configurable scallop size with default
+    
+    // Calculate square corners (centered around 0,0)
+    const halfSize = baseSize / 2;
+    const left = -halfSize;
+    const right = halfSize;
+    const top = -halfSize;
+    const bottom = halfSize;
+    
+    // Calculate spacing for consistent scallops
+    // Each scallop should be evenly spaced along the perimeter
+    const perimeter = baseSize * 4; // Square perimeter
+    const scallopSpacing = scallopRadius * 2; // Distance between scallop centers
+    const totalScallops = Math.floor(perimeter / scallopSpacing);
+    const scallopsPerSide = Math.max(2, Math.floor(totalScallops / 4));
+    
+    // Generate path data for scalloped rectangle
+    let pathData = '';
+    
+    // Top edge
+    for (let i = 0; i < scallopsPerSide; i++) {
+      const x = left + (i * scallopSpacing);
+      const centerX = x + scallopRadius;
+      const centerY = top;
+      const startAngle = Math.PI;
+      const endAngle = 0;
+      pathData += this.createArcSegment(centerX, centerY, scallopRadius, startAngle, endAngle, i === 0);
+    }
+    
+    // Right edge
+    for (let i = 0; i < scallopsPerSide; i++) {
+      const y = top + (i * scallopSpacing);
+      const centerX = right;
+      const centerY = y + scallopRadius;
+      const startAngle = -Math.PI / 2;
+      const endAngle = Math.PI / 2;
+      pathData += this.createArcSegment(centerX, centerY, scallopRadius, startAngle, endAngle, false);
+    }
+    
+    // Bottom edge
+    for (let i = 0; i < scallopsPerSide; i++) {
+      const x = right - (i * scallopSpacing);
+      const centerX = x - scallopRadius;
+      const centerY = bottom;
+      const startAngle = 0;
+      const endAngle = Math.PI;
+      pathData += this.createArcSegment(centerX, centerY, scallopRadius, startAngle, endAngle, false);
+    }
+    
+    // Left edge
+    for (let i = 0; i < scallopsPerSide; i++) {
+      const y = bottom - (i * scallopSpacing);
+      const centerX = left;
+      const centerY = y - scallopRadius;
+      const startAngle = Math.PI / 2;
+      const endAngle = -Math.PI / 2;
+      pathData += this.createArcSegment(centerX, centerY, scallopRadius, startAngle, endAngle, false);
+    }
+    
+    // Close the path
+    pathData += 'Z';
+    
+    // Create the cloud shape using SVG path
+    const cloudPath = new (fabric as any).Path(pathData, {
+      fill: 'transparent',
+      stroke: properties.color,
+      strokeWidth: properties.strokeWidth,
+      opacity: properties.opacity,
+      selectable: false,
+      evented: false,
+                 originX: 'center',
+           originY: 'center'
+         });
+    
+    return cloudPath;
+  }
+  
+  private createArcSegment(centerX: number, centerY: number, radius: number, startAngle: number, endAngle: number, isFirstSegment: boolean = false): string {
+    // Create an arc segment using SVG arc commands
+    const startX = centerX + radius * Math.cos(startAngle);
+    const startY = centerY + radius * Math.sin(startAngle);
+    const endX = centerX + radius * Math.cos(endAngle);
+    const endY = centerY + radius * Math.sin(endAngle);
+    
+    // Determine if we need a large arc (sweep flag)
+    const angleDiff = endAngle - startAngle;
+    const largeArcFlag = Math.abs(angleDiff) > Math.PI ? 1 : 0;
+    
+    // For the first segment, use 'M' to move to the start point
+    // For subsequent segments, just use the arc command to connect smoothly
+    if (isFirstSegment) {
+      return `M ${startX} ${startY} A ${radius} ${radius} 0 ${largeArcFlag} 1 ${endX} ${endY} `;
+    } else {
+      return `A ${radius} ${radius} 0 ${largeArcFlag} 1 ${endX} ${endY} `;
     }
   }
 

@@ -127,6 +127,7 @@ interface PDFViewerProps {
     opacity: number;
     fontSize?: number;
     fontWeight?: number;
+    scallopSize?: number;
   };
   onPDFControlsChange?: (controls: {
     currentPage: number;
@@ -173,7 +174,8 @@ function PDFViewerComponent({
     strokeWidth: 2,
     opacity: 1.0,
     fontSize: 12,
-    fontWeight: 400
+    fontWeight: 400,
+    scallopSize: 8
   };
   const [isLoading, setIsLoading] = useState(false);
   const [isRendering, setIsRendering] = useState(false);
@@ -2160,7 +2162,8 @@ function PDFViewerComponent({
         strokeWidth: toolProperties.strokeWidth,
         opacity: toolProperties.opacity,
         fontSize: toolProperties.fontSize,
-        fontWeight: toolProperties.fontWeight
+        fontWeight: toolProperties.fontWeight,
+        scallopSize: toolProperties.scallopSize
       });
     }
   }, [activeTool, toolProperties]);

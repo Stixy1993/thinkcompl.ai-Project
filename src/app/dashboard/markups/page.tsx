@@ -20,7 +20,8 @@ export default function MarkupsPage() {
     strokeWidth: 1.0, // More visible default stroke width (0.01px to 5px range)
     opacity: 1.0,
     fontSize: 12, // Smaller default font size
-    fontWeight: 400 // Default font weight (normal)
+    fontWeight: 400, // Default font weight (normal)
+    scallopSize: 8 // Default scallop size for cloud tool
   });
   const [showFileBrowser, setShowFileBrowser] = useState(false);
   const [revisionClouds, setRevisionClouds] = useState<Array<{
@@ -74,7 +75,7 @@ export default function MarkupsPage() {
   ];
 
   const bluebeamTools = [
-    { id: 'revisionCloud', name: 'Cloud Tool', icon: HiCloud, description: 'Revision cloud with comment box' },
+    { id: 'cloud', name: 'Cloud Tool', icon: HiCloud, description: 'Revision cloud with comment box' },
     { id: 'callout', name: 'Callout', icon: HiChatAlt, description: 'Add callout boxes' },
     { id: 'stamp', name: 'Stamp', icon: HiBookmark, description: 'Add approval stamps' },
     { id: 'measurement', name: 'Measure', icon: HiChartBar, description: 'Measurement tools' },
@@ -165,6 +166,8 @@ Common Issues:
   }, []);
 
   const handleRevisionCloudClick = useCallback((e: React.MouseEvent) => {
+    // Only show revision cloud modal if we're using the old revision cloud system
+    // and not when the ToolManager is handling the cloud tool
     if (activeTool === 'revisionCloud') {
       const rect = e.currentTarget.getBoundingClientRect();
       const x = e.clientX - rect.left;
@@ -215,7 +218,7 @@ Common Issues:
         {/* Center PDF Viewer */}
         <div className="flex-1 bg-gray-50 min-w-0 relative" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center' }}>
           {currentFileUrl ? (
-            <div className="w-full h-auto markups-page-pdf-container" onClick={handleRevisionCloudClick}>
+            <div className="w-full h-auto markups-page-pdf-container" onClick={activeTool === 'revisionCloud' ? handleRevisionCloudClick : undefined}>
               <PDFViewer
                 fileUrl={currentFileUrl}
                 annotations={annotations}
@@ -397,6 +400,27 @@ Common Issues:
                     </div>
                   )}
                   
+                  {/* Scallop Size Property - Only for cloud tool */}
+                  {(activeTool === 'cloud' || (activeTool === 'select' && lastActiveTool === 'cloud')) && (
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                          Scallop Size
+                        </label>
+                        <span className="text-xs text-gray-500">{toolProperties.scallopSize}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="4"
+                        max="20"
+                        step="1"
+                        value={toolProperties.scallopSize || 8}
+                        onChange={(e) => setToolProperties(prev => ({ ...prev, scallopSize: parseInt(e.target.value) }))}
+                        className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                      />
+                    </div>
+                  )}
+                  
                   {/* Text Size Property - Only for text tool */}
                   {(activeTool === 'text' || (activeTool === 'select' && lastActiveTool === 'text')) && (
                     <div>
@@ -562,6 +586,25 @@ Common Issues:
                   {/* Custom Tooltip */}
                   <div className="absolute right-full mr-6 top-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-70 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-[9999]">
                     Line: {toolProperties.strokeWidth.toFixed(2)}px
+                    <div className="absolute right-0 top-1/2 transform -translate-y-1/2 translate-x-1 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-l-gray-900"></div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Scallop Size Property - Only for cloud tool */}
+              {(activeTool === 'cloud' || (activeTool === 'select' && lastActiveTool === 'cloud')) && (
+                <div className="relative group">
+                  <div className="flex items-center justify-center">
+                    <div 
+                      className="tool-property w-8 h-8 rounded-lg border-2 border-gray-300 bg-gray-100 flex items-center justify-center cursor-pointer hover:bg-gray-200 transition-colors"
+                      onClick={() => setShowPropertiesPanel(true)}
+                    >
+                      <div className="text-xs font-bold text-gray-600">{toolProperties.scallopSize}</div>
+                    </div>
+                  </div>
+                  {/* Custom Tooltip */}
+                  <div className="absolute right-full mr-6 top-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-70 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-[9999]">
+                    Scallop: {toolProperties.scallopSize}px
                     <div className="absolute right-0 top-1/2 transform -translate-y-1/2 translate-x-1 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-l-gray-900"></div>
                   </div>
                 </div>

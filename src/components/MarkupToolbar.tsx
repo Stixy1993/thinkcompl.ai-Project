@@ -11,9 +11,11 @@ interface MarkupToolbarProps {
   onColorChange: (color: string) => void;
   onStrokeWidthChange: (width: number) => void;
   onOpacityChange: (opacity: number) => void;
+  onScallopSizeChange?: (size: number) => void; // New prop for scallop size
   color: string;
   strokeWidth: number;
   opacity: number;
+  scallopSize?: number; // New prop for scallop size
   disabled?: boolean;
 }
 
@@ -23,9 +25,11 @@ function MarkupToolbarComponent({
   onColorChange,
   onStrokeWidthChange,
   onOpacityChange,
+  onScallopSizeChange,
   color,
   strokeWidth,
   opacity,
+  scallopSize = 8,
   disabled = false
 }: MarkupToolbarProps) {
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -249,15 +253,30 @@ function MarkupToolbarComponent({
 
             {/* Cloud Options */}
             {activeTool === 'cloud' && (
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">
-                  Cloud Style
-                </label>
-                <select className="w-full text-xs p-2 border border-gray-300 rounded-md">
-                  <option value="standard">Standard Cloud</option>
-                  <option value="dense">Dense Cloud</option>
-                  <option value="sparse">Sparse Cloud</option>
-                </select>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Scallop Size: {scallopSize}px
+                  </label>
+                  <input
+                    type="range"
+                    min="4"
+                    max="20"
+                    value={scallopSize}
+                    onChange={(e) => onScallopSizeChange?.(parseInt(e.target.value))}
+                    className="w-full"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Cloud Style
+                  </label>
+                  <select className="w-full text-xs p-2 border border-gray-300 rounded-md">
+                    <option value="standard">Standard Cloud</option>
+                    <option value="dense">Dense Cloud</option>
+                    <option value="sparse">Sparse Cloud</option>
+                  </select>
+                </div>
               </div>
             )}
 

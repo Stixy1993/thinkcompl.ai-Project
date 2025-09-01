@@ -4,6 +4,7 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { v4 as uuidv4 } from 'uuid';
 import dynamic from 'next/dynamic';
+import { ToolManager, ToolType, ToolProperties } from '../lib/toolManager';
 
 // Extend Window interface for CDN-loaded libraries
 declare global {
@@ -196,6 +197,9 @@ function PDFViewerComponent({
   
   // Clipboard state for copy/paste functionality
   const [clipboardObject, setClipboardObject] = useState<any>(null);
+
+  // Tool Manager
+  const toolManagerRef = useRef<ToolManager | null>(null);
 
   // Keyboard shortcuts
   useHotkeys('ctrl+z', () => undo());
@@ -544,7 +548,7 @@ function PDFViewerComponent({
             const pdfDataUrl = canvas.toDataURL();
             console.log('PDFViewer: PDF canvas data URL length:', pdfDataUrl.length);
             
-            fabricCanvas.setBackgroundImage(pdfDataUrl, fabricCanvas.renderAll.bind(fabricCanvas), {
+                                     fabricCanvas.setBackgroundImage(pdfDataUrl, fabricCanvas.renderAll.bind(fabricCanvas), {
               scaleX: 1,
               scaleY: 1,
               originX: 'left',
@@ -552,12 +556,32 @@ function PDFViewerComponent({
             });
             
             console.log('PDFViewer: Successfully set PDF as background on Fabric canvas');
+            
+            // Initialize Tool Manager after a delay to ensure PDF is rendered
+            setTimeout(() => {
+              const toolManager = new ToolManager({
+                color: toolProperties.color,
+                strokeWidth: toolProperties.strokeWidth,
+                opacity: toolProperties.opacity,
+                fontSize: toolProperties.fontSize,
+                fontWeight: toolProperties.fontWeight
+              });
+              toolManager.setCanvas(fabricCanvas);
+              toolManager.setActiveTool(activeTool as ToolType);
+              toolManagerRef.current = toolManager;
+              
+              console.log('🛠️ Tool Manager initialized with tool:', activeTool);
+            }, 500); // Longer delay to ensure PDF is fully rendered
+            
           } catch (error) {
             console.error('PDFViewer: Error setting PDF background:', error);
           }
           
-          setupFabricEventListeners(fabricCanvas);
-          console.log('PDFViewer: Fabric.js canvas initialized successfully on separate canvas');
+          // Tool Manager handles all event listeners now
+          console.log('PDFViewer: Fabric.js canvas initialized successfully with Tool Manager');
+          
+          // Ensure PDF renders even if ToolManager isn't ready
+          fabricCanvas.renderAll();
           
           // Save initial canvas state for undo/redo
           setTimeout(() => {
@@ -2126,38 +2150,20 @@ function PDFViewerComponent({
     }
   }, [toolProperties]);
 
-  // Update freehand drawing brush properties when tool properties change
+  // Tool Manager handles tool changes and properties
   useEffect(() => {
-    if (fabricCanvasRef.current && toolProperties && activeTool === 'freehand') {
-      const canvas = fabricCanvasRef.current;
-      if (canvas.freeDrawingBrush && !canvas.isDrawingMode) {
-        console.log('🎨 Updating freehand brush properties:', {
-          width: toolProperties.strokeWidth,
-          color: toolProperties.color,
-          opacity: toolProperties.opacity
-        });
-        canvas.freeDrawingBrush.width = toolProperties.strokeWidth || 3;
-        
-        // Handle opacity by converting color to RGBA with alpha transparency
-        const opacity = toolProperties.opacity || 1.0;
-        const color = toolProperties.color || '#ff0000';
-        
-        // Convert hex color to RGBA with opacity
-        const hexToRgba = (hex: string, alpha: number) => {
-          const r = parseInt(hex.slice(1, 3), 16);
-          const g = parseInt(hex.slice(3, 5), 16);
-          const b = parseInt(hex.slice(5, 7), 16);
-          return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-        };
-        
-        const rgbaColor = hexToRgba(color, opacity);
-        canvas.freeDrawingBrush.color = rgbaColor;
-        canvas.freeDrawingBrush.stroke = rgbaColor;
-        
-        console.log('🎨 Applied RGBA color with opacity:', rgbaColor);
-      }
+    if (toolManagerRef.current) {
+      console.log('🛠️ Tool Manager: Updating active tool to:', activeTool);
+      toolManagerRef.current.setActiveTool(activeTool as ToolType);
+      toolManagerRef.current.setToolProperties({
+        color: toolProperties.color,
+        strokeWidth: toolProperties.strokeWidth,
+        opacity: toolProperties.opacity,
+        fontSize: toolProperties.fontSize,
+        fontWeight: toolProperties.fontWeight
+      });
     }
-  }, [toolProperties, activeTool]);
+  }, [activeTool, toolProperties]);
 
   // Handle scale changes and re-render when scale updates
   // Note: This is now handled directly by zoom functions to avoid conflicts

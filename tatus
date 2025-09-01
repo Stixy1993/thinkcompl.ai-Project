@@ -1,0 +1,5 @@
+[33m3f2e5de[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m Fix PDF editor toolbar stability and layout issues
+[33m0a5183d[m Update PDF viewer components and dependencies
+[33ma771bee[m[33m ([m[1;31morigin-clean/main[m[33m, [m[1;31morigin-clean/HEAD[m[33m)[m Fix SharePoint documents loading by correcting API action from getDefaultDrive to getDrives
+[33m7cd931b[m[33m ([m[1;31morigin/clean-main[m[33m, [m[1;31morigin/HEAD[m[33m, [m[1;31morigin-clean/clean-main[m[33m)[m Enhanced dashboard layout with floating notification circle and improved hover effects
+[33mb7808ca[m feat: Add PDF editor with SharePoint integration and move sidebar to left side

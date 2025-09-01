@@ -389,6 +389,18 @@ function PDFViewerComponent({
       const viewport = page.getViewport({ scale: 1.0 }); // Get original viewport
       
       console.log('PDFViewer: Original page dimensions:', viewport.width, 'x', viewport.height);
+      console.log('PDFViewer: Page rotation:', viewport.rotation);
+      
+      // Handle page rotation properly
+      const rotation = viewport.rotation || 0;
+      console.log('PDFViewer: Processing page with rotation:', rotation);
+      
+      // For upside-down PDFs, we need to rotate 180 degrees
+      let correctedRotation = rotation;
+      if (rotation === 180) {
+        correctedRotation = 0; // Reset to normal orientation
+      }
+      console.log('PDFViewer: Corrected rotation:', correctedRotation);
       
       // Calculate the scale to fit the page within the container
       const container = containerRef.current;
@@ -423,7 +435,7 @@ function PDFViewerComponent({
         console.log('PDFViewer: Scaling down to prevent memory issues:', renderScale);
       }
       
-      const finalViewport = page.getViewport({ scale: renderScale });
+      const finalViewport = page.getViewport({ scale: renderScale, rotation: correctedRotation });
       
       // Set canvas dimensions to the scaled size
       canvas.width = finalViewport.width;
@@ -776,24 +788,30 @@ function PDFViewerComponent({
     let startY = 0;
 
     fabricCanvas.on('mouse:down', (e) => {
+      console.log('🎯 Mouse down event triggered, activeTool:', activeTool, 'readOnly:', readOnly);
       if (readOnly || activeTool === 'select') return;
 
       const pointer = fabricCanvas.getPointer(e.e);
+      console.log('🎯 Mouse position:', pointer.x, pointer.y);
       isDrawing = true;
       startX = pointer.x;
       startY = pointer.y;
 
       switch (activeTool) {
         case 'rectangle':
+          console.log('🎯 Starting rectangle drawing');
           startRectangleDrawing(pointer.x, pointer.y);
           break;
         case 'circle':
+          console.log('🎯 Starting circle drawing');
           startCircleDrawing(pointer.x, pointer.y);
           break;
         case 'text':
+          console.log('🎯 Starting text annotation');
           addTextAnnotation(pointer.x, pointer.y);
           break;
         case 'arrow':
+          console.log('🎯 Starting arrow drawing');
           startArrowDrawing(pointer.x, pointer.y);
           break;
         case 'cloud':
@@ -809,28 +827,60 @@ function PDFViewerComponent({
           startMeasurementDrawing(pointer.x, pointer.y);
           break;
         case 'freehand':
+          // Only activate drawing mode when mouse is pressed, not just on hover
           fabricCanvas.isDrawingMode = true;
-          fabricCanvas.freeDrawingBrush.width = 3;
-          fabricCanvas.freeDrawingBrush.color = '#ff0000';
+          
+          // Ensure brush exists and set properties
+          if (!fabricCanvas.freeDrawingBrush) {
+            fabricCanvas.freeDrawingBrush = new (fabric as any).PencilBrush(fabricCanvas);
+          }
+          
+          // Set brush properties consistently
+          fabricCanvas.freeDrawingBrush.width = toolProperties.strokeWidth || 3;
+          
+          // Handle opacity by converting color to RGBA with alpha transparency
+          const opacity = toolProperties.opacity || 1.0;
+          const color = toolProperties.color || '#ff0000';
+          
+          // Convert hex color to RGBA with opacity
+          const hexToRgba = (hex: string, alpha: number) => {
+            const r = parseInt(hex.slice(1, 3), 16);
+            const g = parseInt(hex.slice(3, 5), 16);
+            const b = parseInt(hex.slice(5, 7), 16);
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+          };
+          
+          const rgbaColor = hexToRgba(color, opacity);
+          fabricCanvas.freeDrawingBrush.color = rgbaColor;
+          
+          // Also set the stroke property to ensure consistency
+          fabricCanvas.freeDrawingBrush.stroke = rgbaColor;
+          
+          console.log('🎨 Freehand brush properties set:', {
+            width: fabricCanvas.freeDrawingBrush.width,
+            color: fabricCanvas.freeDrawingBrush.color,
+            stroke: fabricCanvas.freeDrawingBrush.stroke
+          });
           break;
       }
     });
 
     fabricCanvas.on('mouse:move', (e) => {
-      if (!isDrawing || readOnly || activeTool === 'select' || activeTool === 'freehand' || 
-          activeTool === 'stamp' || activeTool === 'text' || activeTool === 'cloud' || activeTool === 'callout') return;
+      if (!isDrawing || readOnly || activeTool === 'select') return;
 
+      console.log('🎯 Mouse move event triggered for tool:', activeTool);
       const pointer = fabricCanvas.getPointer(e.e);
       updateDrawingObject(startX, startY, pointer.x, pointer.y);
     });
 
-    fabricCanvas.on('mouse:up', () => {
-      if (activeTool === 'freehand') {
-        fabricCanvas.isDrawingMode = false;
-      }
-      isDrawing = false;
-      finalizeDrawingObject();
-    });
+         fabricCanvas.on('mouse:up', () => {
+       // Only disable drawing mode for non-freehand tools
+       if (activeTool !== 'freehand') {
+         fabricCanvas.isDrawingMode = false;
+       }
+       isDrawing = false;
+       finalizeDrawingObject();
+     });
   };
 
   const startRectangleDrawing = (x: number, y: number) => {
@@ -840,8 +890,9 @@ function PDFViewerComponent({
       width: 0,
       height: 0,
       fill: 'transparent',
-      stroke: '#ff0000',
-      strokeWidth: 2,
+      stroke: toolProperties.color || '#ff0000',
+      strokeWidth: toolProperties.strokeWidth || 2,
+      opacity: toolProperties.opacity || 1.0,
       selectable: true,
       data: {
         isAnnotation: true,
@@ -860,8 +911,9 @@ function PDFViewerComponent({
       top: y,
       radius: 0,
       fill: 'transparent',
-      stroke: '#ff0000',
-      strokeWidth: 2,
+      stroke: toolProperties.color || '#ff0000',
+      strokeWidth: toolProperties.strokeWidth || 2,
+      opacity: toolProperties.opacity || 1.0,
       selectable: true,
       data: {
         isAnnotation: true,
@@ -875,19 +927,51 @@ function PDFViewerComponent({
   };
 
   const startArrowDrawing = (x: number, y: number) => {
-    const line = new (fabric as any).Line([x, y, x, y], {
-      stroke: '#ff0000',
-      strokeWidth: 2,
+    // Create a group containing the line and arrowhead
+    const arrowGroup = new (fabric as any).Group([], {
+      left: x,
+      top: y,
       selectable: true,
       data: {
         isAnnotation: true,
         type: 'arrow',
-        id: uuidv4()
+        id: uuidv4(),
+        startX: x,
+        startY: y,
+        endX: x,
+        endY: y
       }
     });
     
-    fabricCanvasRef.current?.add(line);
-    fabricCanvasRef.current?.setActiveObject(line);
+    // Add the line to the group - start at origin (0,0) since it's relative to group
+    const line = new (fabric as any).Line([0, 0, 0, 0], {
+      stroke: toolProperties.color || '#ff0000',
+      strokeWidth: toolProperties.strokeWidth || 2,
+      selectable: false, // Line is part of group, not individually selectable
+      evented: false
+    });
+    
+    // Add the arrowhead triangle to the group - also at origin initially
+    const arrowhead = new (fabric as any).Triangle({
+      width: 12,
+      height: 12,
+      fill: toolProperties.color || '#ff0000',
+      stroke: toolProperties.color || '#ff0000',
+      strokeWidth: 1,
+      left: 0,
+      top: 0,
+      selectable: false, // Arrowhead is part of group, not individually selectable
+      evented: false
+    });
+    
+    arrowGroup.addWithUpdate(line);
+    arrowGroup.addWithUpdate(arrowhead);
+    
+    fabricCanvasRef.current?.add(arrowGroup);
+    fabricCanvasRef.current?.setActiveObject(arrowGroup);
+    
+    // Force a render to ensure the arrow is visible
+    fabricCanvasRef.current?.renderAll();
   };
 
   const addTextAnnotation = (x: number, y: number) => {
@@ -1039,8 +1123,12 @@ function PDFViewerComponent({
   };
 
   const updateDrawingObject = (startX: number, startY: number, currentX: number, currentY: number) => {
+    console.log('🎯 updateDrawingObject called for tool:', activeTool);
     const activeObject = fabricCanvasRef.current?.getActiveObject();
-    if (!activeObject) return;
+    if (!activeObject) {
+      console.log('❌ No active object found');
+      return;
+    }
 
     switch (activeTool) {
       case 'rectangle':
@@ -1062,11 +1150,49 @@ function PDFViewerComponent({
         });
         break;
       case 'arrow':
-        const line = activeObject as any;
-        line.set({
-          x2: currentX,
-          y2: currentY
-        });
+        const arrowGroup = activeObject as any;
+        if (arrowGroup.type === 'group' && arrowGroup.data?.type === 'arrow') {
+          const line = arrowGroup.getObjects().find((obj: any) => obj.type === 'line');
+          const arrowhead = arrowGroup.getObjects().find((obj: any) => obj.type === 'triangle');
+          
+          if (line && arrowhead) {
+            // Update the line coordinates (relative to group)
+            const groupLeft = arrowGroup.left || 0;
+            const groupTop = arrowGroup.top || 0;
+            const relativeEndX = currentX - groupLeft;
+            const relativeEndY = currentY - groupTop;
+            
+            console.log('🎯 Updating arrow:', {
+              startX, startY, currentX, currentY,
+              groupLeft, groupTop, relativeEndX, relativeEndY
+            });
+            
+            line.set({
+              x2: relativeEndX,
+              y2: relativeEndY
+            });
+            
+            // Calculate arrow angle
+            const angle = Math.atan2(relativeEndY, relativeEndX) * 180 / Math.PI;
+            
+            // Position arrowhead at the end of the line
+            const arrowheadSize = 12;
+            const arrowheadOffset = arrowheadSize / 2;
+            
+            arrowhead.set({
+              left: relativeEndX - arrowheadOffset,
+              top: relativeEndY - arrowheadOffset,
+              angle: angle
+            });
+            
+            // Update group data
+            arrowGroup.data.endX = currentX;
+            arrowGroup.data.endY = currentY;
+            
+            // Force render to ensure updates are visible
+            fabricCanvasRef.current?.renderAll();
+          }
+        }
         break;
       case 'measurement':
         const measureLine = activeObject as any;
@@ -1115,6 +1241,35 @@ function PDFViewerComponent({
   };
 
   const createAnnotationFromObject = (obj: any): Annotation => {
+    // Handle arrow groups specially
+    if (obj.type === 'group' && obj.data?.type === 'arrow') {
+      const line = obj.getObjects().find((groupObj: any) => groupObj.type === 'line');
+      const strokeColor = line ? line.stroke : '#ff0000';
+      const strokeWidth = line ? line.strokeWidth : 2;
+      
+      return {
+        id: obj.data?.id || uuidv4(),
+        type: 'arrow',
+        pageNumber: currentPage,
+        x: obj.data?.originalX || obj.left || 0,
+        y: obj.data?.originalY || obj.top || 0,
+        width: obj.data?.originalWidth || (obj as any).width || 0,
+        height: obj.data?.originalHeight || (obj as any).height || 0,
+        color: 'transparent',
+        strokeColor: strokeColor,
+        strokeWidth: strokeWidth,
+        text: '',
+        fontSize: 16,
+        fontWeight: 400,
+        fontFamily: 'Arial',
+        opacity: obj.opacity || 1,
+        author: 'Current User', // This should come from auth context
+        createdAt: new Date(),
+        modifiedAt: new Date(),
+        comments: []
+      };
+    }
+    
     return {
       id: obj.data?.id || uuidv4(),
       type: obj.data?.type || 'rectangle',
@@ -1218,6 +1373,28 @@ function PDFViewerComponent({
           
           if (obj.type === 'circle') {
             obj.set('radius', (obj.data.originalWidth || obj.width) * scaleFactor / 2);
+          } else if (obj.type === 'group' && obj.data?.type === 'arrow') {
+            // Handle arrow group scaling
+            const line = obj.getObjects().find((groupObj: any) => groupObj.type === 'line');
+            const arrowhead = obj.getObjects().find((groupObj: any) => groupObj.type === 'triangle');
+            
+            if (line && arrowhead) {
+              // Update line coordinates
+              line.set({
+                x2: obj.data.originalWidth * scaleFactor,
+                y2: obj.data.originalHeight * scaleFactor
+              });
+              
+              // Update arrowhead position and angle
+              const arrowheadSize = 12;
+              const arrowheadOffset = arrowheadSize / 2;
+              
+              arrowhead.set({
+                left: obj.data.originalWidth * scaleFactor - arrowheadOffset,
+                top: obj.data.originalHeight * scaleFactor - arrowheadOffset,
+                angle: Math.atan2(obj.data.originalHeight, obj.data.originalWidth) * 180 / Math.PI
+              });
+            }
           }
         }
       });
@@ -1318,6 +1495,54 @@ function PDFViewerComponent({
               originalFontWeight: annotation.fontWeight || 400
             }
           });
+          break;
+        case 'arrow':
+          // Create arrow group with line and arrowhead
+          const arrowGroup = new (fabric as any).Group([], {
+            left: annotation.x * scaleFactor,
+            top: annotation.y * scaleFactor,
+            selectable: !readOnly,
+            data: {
+              isAnnotation: true,
+              type: annotation.type,
+              id: annotation.id,
+              // Store original coordinates for scaling
+              originalX: annotation.x,
+              originalY: annotation.y,
+              originalWidth: annotation.width,
+              originalHeight: annotation.height,
+              startX: annotation.x,
+              startY: annotation.y,
+              endX: annotation.x + annotation.width,
+              endY: annotation.y + annotation.height
+            }
+          });
+          
+          // Add the line to the group
+          const line = new (fabric as any).Line([0, 0, annotation.width * scaleFactor, annotation.height * scaleFactor], {
+            stroke: annotation.strokeColor,
+            strokeWidth: annotation.strokeWidth,
+            selectable: false,
+            evented: false
+          });
+          
+          // Add the arrowhead triangle to the group
+          const arrowhead = new (fabric as any).Triangle({
+            width: 12,
+            height: 12,
+            fill: annotation.strokeColor,
+            stroke: annotation.strokeColor,
+            strokeWidth: 1,
+            left: annotation.width * scaleFactor - 6,
+            top: annotation.height * scaleFactor - 6,
+            angle: Math.atan2(annotation.height, annotation.width) * 180 / Math.PI,
+            selectable: false,
+            evented: false
+          });
+          
+          arrowGroup.addWithUpdate(line);
+          arrowGroup.addWithUpdate(arrowhead);
+          fabricObject = arrowGroup;
           break;
         default:
           return;
@@ -1590,11 +1815,33 @@ function PDFViewerComponent({
 
 
     useEffect(() => {
-    if (fabricCanvasRef.current) {
-      // Always allow individual object selection regardless of tool
-      // Only disable area selection for non-select tools
-      fabricCanvasRef.current.selection = activeTool === 'select';      
-      fabricCanvasRef.current.isDrawingMode = activeTool === 'freehand';
+         if (fabricCanvasRef.current) {
+       // Always allow individual object selection regardless of tool
+       // Only disable area selection for non-select tools
+       fabricCanvasRef.current.selection = activeTool === 'select';      
+       // Don't automatically set drawing mode - only set it when actually drawing
+       // fabricCanvasRef.current.isDrawingMode = activeTool === 'freehand';
+      
+      // If switching to freehand tool, ensure brush properties are set
+      if (activeTool === 'freehand' && fabricCanvasRef.current.freeDrawingBrush) {
+        fabricCanvasRef.current.freeDrawingBrush.width = toolProperties.strokeWidth || 3;
+        
+        // Handle opacity by converting color to RGBA with alpha transparency
+        const opacity = toolProperties.opacity || 1.0;
+        const color = toolProperties.color || '#ff0000';
+        
+        // Convert hex color to RGBA with opacity
+        const hexToRgba = (hex: string, alpha: number) => {
+          const r = parseInt(hex.slice(1, 3), 16);
+          const g = parseInt(hex.slice(3, 5), 16);
+          const b = parseInt(hex.slice(5, 7), 16);
+          return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        };
+        
+        const rgbaColor = hexToRgba(color, opacity);
+        fabricCanvasRef.current.freeDrawingBrush.color = rgbaColor;
+        console.log('🎨 Freehand brush properties set on tool change:', { width: toolProperties.strokeWidth, color: rgbaColor });
+      }
       
       // Make sure all objects remain selectable and movable regardless of tool
       fabricCanvasRef.current.forEachObject((obj: any) => {
@@ -1641,7 +1888,7 @@ function PDFViewerComponent({
         console.log('Active tool changed to:', activeTool);
       }
     }
-  }, [activeTool]);
+  }, [activeTool, toolProperties]);
 
   // Set up event handlers when fabric canvas is ready
   useEffect(() => {
@@ -1661,217 +1908,177 @@ function PDFViewerComponent({
       canvasElement.style.pointerEvents = 'auto';
     }
     
-    // Remove existing handlers
-    canvas.off('mouse:down');
+      // Handle text tool mouse events
+  if (activeTool === 'text') {
+    console.log('🎯 Setting up text tool mouse handler');
     
-    // Only add handlers for annotation tools (not select or freehand)
-    if (activeTool && activeTool !== 'select' && activeTool !== 'freehand') {
-      console.log('🎯 Adding mouse handler for tool:', activeTool);
+    const handleTextMouseDown = (e: any) => {
+      if (!canvas || readOnly) return;
       
-
-      
-      const handleMouseDown = (e: any) => {
-        if (!canvas || readOnly) return;
-        
-        // Check if we clicked on an existing object
-        const target = canvas.findTarget(e.e, false);
-        if (target && target.data?.isAnnotation) {
-          // Just select the object and let Fabric.js handle dragging
-          return; // Don't interfere with existing objects
-        }
-        
-        // Don't create new text box if we just finished editing one
-        if (justFinishedEditing && activeTool === 'text') {
-          console.log('🚫 Preventing new text box creation - just finished editing');
+      // Check if we clicked on an existing object
+      const target = canvas.findTarget(e.e, false);
+      if (target && target.data?.isAnnotation) {
+        // If clicking on an existing text object, just select it
+        if (target.type === 'i-text' || target.type === 'text') {
+          canvas.setActiveObject(target);
           return;
         }
-        
-        const pointer = canvas.getPointer(e.e);
-        
-        // Create annotation based on active tool
-        if (activeTool === 'text') {
-          // Save state before creating new text box
-          saveCanvasState();
-          
-          // Create text box with placeholder text that gets properly replaced
-                     const textObj = new (fabric as any).IText('Type text here', {
-             left: pointer.x,
-             top: pointer.y,
-             fontSize: toolProperties.fontSize || 12,
-             fill: '#999999', // Start with grey placeholder
-             fontWeight: toolProperties.fontWeight || 400,
-             opacity: toolProperties.opacity || 1.0,
-            fontFamily: 'Arial, sans-serif',
-            fontStyle: 'normal',
-            selectable: true,
-            editable: true,
-            evented: true,
-            moveCursor: 'grab',
-            hoverCursor: 'grab',
-            backgroundColor: 'rgba(255, 255, 255, 0.9)',
-            stroke: '', // No stroke on text itself
-            strokeWidth: 0,
-            padding: 4,
-            hasControls: false, // Remove corner resize handles
-            hasBorders: true, // Keep border for selection
-            borderColor: '#3B82F6',
-            lockScalingX: true, // Prevent manual scaling
-            lockScalingY: true, // Prevent manual scaling
-            data: {
-              isAnnotation: true,
-              type: 'text',
-              id: Date.now().toString(),
-              isPlaceholder: true, // Track if this is placeholder text
-              // Store original coordinates for scaling - convert from current scale to original scale
-              originalX: pointer.x / scaleRef.current,
-              originalY: pointer.y / scaleRef.current,
-              originalWidth: 100 / scaleRef.current, // Approximate text width
-              originalHeight: 20 / scaleRef.current, // Approximate text height
-              originalFontSize: (toolProperties.fontSize || 12) / scaleRef.current,
-              originalFontWeight: toolProperties.fontWeight || 400
-            }
-          });
-          
-          // Handle text editing with robust placeholder management
-          let isEditingMode = false;
-          
-          textObj.on('editing:entered', function() {
-            console.log('🖊️ Text editing started');
-            isEditingMode = true;
-            // Clear placeholder text immediately when editing starts
-            if (textObj.data?.isPlaceholder) {
-              // Use selectAll() and then delete to properly clear
-              textObj.selectAll();
-              textObj.removeChars(0, textObj.text.length);
-              textObj.fill = '#000000';
-              textObj.data.isPlaceholder = false;
-              canvas.renderAll();
-            }
-          });
-          
-          // Handle text changes during editing - prevent any placeholder interference
-          textObj.on('text:changed', function() {
-            if (isEditingMode && textObj.data?.isPlaceholder === false) {
-              // Ensure coordinates are updated and no placeholder text sneaks in
-              textObj.setCoords();
-              // Make sure we're not in placeholder state while typing
-              if (textObj.text === 'Type text here') {
-                textObj.text = '';
-              }
-            }
-          });
-          
-          textObj.on('editing:exited', function() {
-            console.log('🖊️ Text editing ended');
-            isEditingMode = false;
-            
-            // Set global flag to prevent immediate new text box creation
-            setJustFinishedEditing(true);
-            
-            // Clear the flag after a short delay
-            if (editingTimeoutRef.current) clearTimeout(editingTimeoutRef.current);
-            editingTimeoutRef.current = setTimeout(() => {
-              setJustFinishedEditing(false);
-              console.log('🔓 Text editing cooldown ended - new text boxes allowed');
-            }, 300); // Increased to 300ms for better reliability
-            
-            // Only restore placeholder if completely empty
-            if (textObj.text.trim() === '') {
-              textObj.text = 'Type text here';
-              textObj.fill = '#999999';
-              textObj.fontWeight = 'normal';
-              textObj.data.isPlaceholder = true;
-              canvas.renderAll();
-            }
-          });
-          
-
-          
-          // Add to canvas
-          canvas.add(textObj);
-          canvas.setActiveObject(textObj);
-          
-          // Don't start editing immediately - let user see the placeholder first
-          // textObj.enterEditing();
-          
-          canvas.renderAll();
-          
-          // Auto-switch to select tool after creating text box
-          console.log('🎯 Auto-switching to select tool after text box creation');
-          
-          // If using external tool control, notify parent to change tool
-          if (externalActiveTool) {
-            // For external tool control, we need to notify the parent component
-            console.log('🎯 Notifying parent to switch external tool to select');
-            onPDFControlsChange?.({
-              currentPage,
-              totalPages,
-              scale,
-              goToPreviousPage,
-              goToNextPage,
-              zoomIn,
-              zoomOut,
-              resetZoom,
-              undo,
-              redo,
-              activeTool: 'select'  // Request parent to change tool
-            });
-          } else {
-            // For internal tool control, change internal state
-            setInternalActiveTool('select');
-          }
-        } else if (activeTool === 'rectangle') {
-          console.log('🔲 Creating rectangle annotation');
-          const rectObj = new (fabric as any).Rect({
-            left: pointer.x,
-            top: pointer.y,
-            width: 100,
-            height: 60,
-            fill: 'transparent',
-            stroke: toolProperties.color,
-            strokeWidth: toolProperties.strokeWidth,
-            selectable: true,
-            data: {
-              isAnnotation: true,
-              type: 'rectangle',
-              id: Date.now().toString(),
-              // Store original coordinates for scaling - convert from current scale to original scale
-              originalX: pointer.x / scaleRef.current,
-              originalY: pointer.y / scaleRef.current,
-              originalWidth: 100 / scaleRef.current,
-              originalHeight: 60 / scaleRef.current
-            }
-          });
-          canvas.add(rectObj);
-          canvas.renderAll();
-        } else if (activeTool === 'circle') {
-          console.log('⭕ Creating circle annotation');
-          const circleObj = new (fabric as any).Circle({
-            left: pointer.x,
-            top: pointer.y,
-            radius: 30,
-            fill: 'transparent',
-            stroke: toolProperties.color,
-            strokeWidth: toolProperties.strokeWidth,
-            selectable: true,
-            data: {
-              isAnnotation: true,
-              type: 'circle',
-              id: Date.now().toString(),
-              // Store original coordinates for scaling - convert from current scale to original scale
-              originalX: pointer.x / scaleRef.current,
-              originalY: pointer.y / scaleRef.current,
-              originalWidth: 60 / scaleRef.current, // diameter
-              originalHeight: 60 / scaleRef.current  // diameter
-            }
-          });
-          canvas.add(circleObj);
+        // For other annotation types, don't interfere
+        return;
+      }
+      
+      // Don't create new text box if we just finished editing one
+      if (justFinishedEditing) {
+        console.log('🚫 Preventing new text box creation - just finished editing');
+        return;
+      }
+      
+      const pointer = canvas.getPointer(e.e);
+      
+      // Create text annotation
+      // Save state before creating new text box
+      saveCanvasState();
+      
+      // Create text box with placeholder text that gets properly replaced
+      const textObj = new (fabric as any).IText('Type text here', {
+        left: pointer.x,
+        top: pointer.y,
+        fontSize: toolProperties.fontSize || 12,
+        fill: '#999999', // Start with grey placeholder
+        fontWeight: toolProperties.fontWeight || 400,
+        opacity: toolProperties.opacity || 1.0,
+        fontFamily: 'Arial, sans-serif',
+        fontStyle: 'normal',
+        selectable: true,
+        editable: true,
+        evented: true,
+        moveCursor: 'grab',
+        hoverCursor: 'grab',
+        backgroundColor: 'rgba(255, 255, 255, 0.9)',
+        stroke: '', // No stroke on text itself
+        strokeWidth: 0,
+        padding: 4,
+        hasControls: false, // Remove corner resize handles
+        hasBorders: true, // Keep border for selection
+        borderColor: '#3B82F6',
+        lockScalingX: true, // Prevent manual scaling
+        lockScalingY: true, // Prevent manual scaling
+        data: {
+          isAnnotation: true,
+          type: 'text',
+          id: Date.now().toString(),
+          isPlaceholder: true, // Track if this is placeholder text
+          // Store original coordinates for scaling - convert from current scale to original scale
+          originalX: pointer.x / scaleRef.current,
+          originalY: pointer.y / scaleRef.current,
+          originalWidth: 100 / scaleRef.current, // Approximate text width
+          originalHeight: 20 / scaleRef.current, // Approximate text height
+          originalFontSize: (toolProperties.fontSize || 12) / scaleRef.current,
+          originalFontWeight: toolProperties.fontWeight || 400
+        }
+      });
+      
+      // Handle text editing with robust placeholder management
+      let isEditingMode = false;
+      
+      textObj.on('editing:entered', function() {
+        console.log('🖊️ Text editing started');
+        isEditingMode = true;
+        // Clear placeholder text immediately when editing starts
+        if (textObj.data?.isPlaceholder) {
+          // Use selectAll() and then delete to properly clear
+          textObj.selectAll();
+          textObj.removeChars(0, textObj.text.length);
+          textObj.fill = '#000000';
+          textObj.data.isPlaceholder = false;
           canvas.renderAll();
         }
-      };
+      });
       
-      canvas.on('mouse:down', handleMouseDown);
+      // Handle text changes during editing - prevent any placeholder interference
+      textObj.on('text:changed', function() {
+        if (isEditingMode && textObj.data?.isPlaceholder === false) {
+          // Ensure coordinates are updated and no placeholder text sneaks in
+          textObj.setCoords();
+          // Make sure we're not in placeholder state while typing
+          if (textObj.text === 'Type text here') {
+            textObj.text = '';
+          }
+        }
+      });
+      
+      textObj.on('editing:exited', function() {
+        console.log('🖊️ Text editing ended');
+        isEditingMode = false;
+        
+        // Set global flag to prevent immediate new text box creation
+        setJustFinishedEditing(true);
+        
+        // Clear the flag after a short delay
+        if (editingTimeoutRef.current) clearTimeout(editingTimeoutRef.current);
+        editingTimeoutRef.current = setTimeout(() => {
+          setJustFinishedEditing(false);
+          console.log('🔓 Text editing cooldown ended - new text boxes allowed');
+        }, 300); // Increased to 300ms for better reliability
+        
+        // Only restore placeholder if completely empty
+        if (textObj.text.trim() === '') {
+          textObj.text = 'Type text here';
+          textObj.fill = '#999999';
+          textObj.fontWeight = 'normal';
+          textObj.data.isPlaceholder = true;
+          canvas.renderAll();
+        }
+      });
+      
+      // Add to canvas
+      canvas.add(textObj);
+      canvas.setActiveObject(textObj);
+      
+      // Don't start editing immediately - let user see the placeholder first
+      // textObj.enterEditing();
+      
+      canvas.renderAll();
+      
+      // Auto-switch to select tool after creating text box
+      console.log('🎯 Auto-switching to select tool after text box creation');
+      
+      // If using external tool control, notify parent to change tool
+      if (externalActiveTool) {
+        // For external tool control, we need to notify the parent component
+        console.log('🎯 Notifying parent to switch external tool to select');
+        onPDFControlsChange?.({
+          currentPage,
+          totalPages,
+          scale,
+          goToPreviousPage,
+          goToNextPage,
+          zoomIn,
+          zoomOut,
+          resetZoom,
+          undo,
+          redo,
+          activeTool: 'select'  // Request parent to change tool
+        });
+      } else {
+        // For internal tool control, change internal state
+        setInternalActiveTool('select');
+      }
+    };
+    
+    // Remove any existing text mouse handler before adding new one
+    canvas.off('mouse:down', handleTextMouseDown);
+    canvas.on('mouse:down', handleTextMouseDown);
+    
+    // Store the handler reference for cleanup
+    canvas._textMouseHandler = handleTextMouseDown;
+  } else {
+    // Remove text mouse handler when not using text tool
+    if (canvas._textMouseHandler) {
+      canvas.off('mouse:down', canvas._textMouseHandler);
+      delete canvas._textMouseHandler;
     }
+  }
   }, [activeTool, toolProperties, readOnly]);
 
   // Handle tool properties changes to update selected text objects
@@ -1887,7 +2094,7 @@ function PDFViewerComponent({
         console.log('📝 Updating object type:', activeObject.type, 'isPlaceholder:', activeObject.data?.isPlaceholder);
         
         // Update the active object with new properties
-                 if (activeObject.type === 'i-text' || activeObject.type === 'text') {
+        if (activeObject.type === 'i-text' || activeObject.type === 'text') {
            // For text objects, update color, fontSize, fontWeight, and opacity
            console.log('✏️ Setting text properties:', {
              color: toolProperties.color,
@@ -1918,6 +2125,39 @@ function PDFViewerComponent({
       }
     }
   }, [toolProperties]);
+
+  // Update freehand drawing brush properties when tool properties change
+  useEffect(() => {
+    if (fabricCanvasRef.current && toolProperties && activeTool === 'freehand') {
+      const canvas = fabricCanvasRef.current;
+      if (canvas.freeDrawingBrush && !canvas.isDrawingMode) {
+        console.log('🎨 Updating freehand brush properties:', {
+          width: toolProperties.strokeWidth,
+          color: toolProperties.color,
+          opacity: toolProperties.opacity
+        });
+        canvas.freeDrawingBrush.width = toolProperties.strokeWidth || 3;
+        
+        // Handle opacity by converting color to RGBA with alpha transparency
+        const opacity = toolProperties.opacity || 1.0;
+        const color = toolProperties.color || '#ff0000';
+        
+        // Convert hex color to RGBA with opacity
+        const hexToRgba = (hex: string, alpha: number) => {
+          const r = parseInt(hex.slice(1, 3), 16);
+          const g = parseInt(hex.slice(3, 5), 16);
+          const b = parseInt(hex.slice(5, 7), 16);
+          return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        };
+        
+        const rgbaColor = hexToRgba(color, opacity);
+        canvas.freeDrawingBrush.color = rgbaColor;
+        canvas.freeDrawingBrush.stroke = rgbaColor;
+        
+        console.log('🎨 Applied RGBA color with opacity:', rgbaColor);
+      }
+    }
+  }, [toolProperties, activeTool]);
 
   // Handle scale changes and re-render when scale updates
   // Note: This is now handled directly by zoom functions to avoid conflicts
@@ -2069,7 +2309,7 @@ function PDFViewerComponent({
           {isLoading && (
             <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-95 backdrop-blur-sm">
               <div className="text-center space-y-6 p-8 bg-white rounded-xl shadow-2xl border border-gray-200">
-                <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
                 <div className="text-xl font-semibold text-gray-700">Loading PDF...</div>
                 <div className="text-sm text-gray-500 max-w-xs">
                   This may take a moment for large files
@@ -2103,11 +2343,11 @@ function PDFViewerComponent({
           {isRendering && (
             <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-95 backdrop-blur-sm">
               <div className="text-center space-y-6 p-8 bg-white rounded-xl shadow-2xl border border-gray-200 max-w-md mx-4">
-                <div className="w-12 h-12 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
                 <div className="text-lg font-semibold text-gray-700">Rendering Page {currentPage}</div>
                 <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
                   <div 
-                    className="bg-green-500 h-3 rounded-full transition-all duration-300 ease-out"
+                    className="bg-blue-600 h-3 rounded-full transition-all duration-300 ease-out"
                     style={{ width: `${renderProgress}%` }}
                   ></div>
                 </div>

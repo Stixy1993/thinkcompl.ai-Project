@@ -12,10 +12,12 @@ interface MarkupToolbarProps {
   onStrokeWidthChange: (width: number) => void;
   onOpacityChange: (opacity: number) => void;
   onScallopSizeChange?: (size: number) => void; // New prop for scallop size
+  onCloudLineThicknessChange?: (thickness: number) => void; // New prop for cloud line thickness
   color: string;
   strokeWidth: number;
   opacity: number;
   scallopSize?: number; // New prop for scallop size
+  cloudLineThickness?: number; // New prop for cloud line thickness
   disabled?: boolean;
 }
 
@@ -26,10 +28,12 @@ function MarkupToolbarComponent({
   onStrokeWidthChange,
   onOpacityChange,
   onScallopSizeChange,
+  onCloudLineThicknessChange,
   color,
   strokeWidth,
   opacity,
   scallopSize = 8,
+  cloudLineThickness = 1,
   disabled = false
 }: MarkupToolbarProps) {
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -264,6 +268,19 @@ function MarkupToolbarComponent({
                     max="20"
                     value={scallopSize}
                     onChange={(e) => onScallopSizeChange?.(parseInt(e.target.value))}
+                    className="w-full"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Line Thickness: {cloudLineThickness}px
+                  </label>
+                  <input
+                    type="range"
+                    min="1"
+                    max="10"
+                    value={cloudLineThickness}
+                    onChange={(e) => onCloudLineThicknessChange?.(parseInt(e.target.value))}
                     className="w-full"
                   />
                 </div>

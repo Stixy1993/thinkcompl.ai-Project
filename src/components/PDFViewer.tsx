@@ -128,6 +128,7 @@ interface PDFViewerProps {
     fontSize?: number;
     fontWeight?: number;
     scallopSize?: number;
+    cloudLineThickness?: number;
   };
   onPDFControlsChange?: (controls: {
     currentPage: number;
@@ -142,6 +143,15 @@ interface PDFViewerProps {
     redo: () => void;
     activeTool?: MarkupTool;
   }) => void;
+  onToolPropertiesUpdate?: (properties: {
+    color: string;
+    strokeWidth: number;
+    opacity: number;
+    fontSize?: number;
+    fontWeight?: number;
+    scallopSize?: number;
+    cloudLineThickness?: number;
+  }) => void;
 }
 
 function PDFViewerComponent({
@@ -154,7 +164,8 @@ function PDFViewerComponent({
   className = "",
   activeTool: externalActiveTool,
   toolProperties: externalToolProperties,
-  onPDFControlsChange
+  onPDFControlsChange,
+  onToolPropertiesUpdate
 }: PDFViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -175,7 +186,8 @@ function PDFViewerComponent({
     opacity: 1.0,
     fontSize: 12,
     fontWeight: 400,
-    scallopSize: 8
+    scallopSize: 8,
+    cloudLineThickness: 1
   };
   const [isLoading, setIsLoading] = useState(false);
   const [isRendering, setIsRendering] = useState(false);
@@ -566,7 +578,16 @@ function PDFViewerComponent({
                 strokeWidth: toolProperties.strokeWidth,
                 opacity: toolProperties.opacity,
                 fontSize: toolProperties.fontSize,
-                fontWeight: toolProperties.fontWeight
+                fontWeight: toolProperties.fontWeight,
+                scallopSize: toolProperties.scallopSize,
+                cloudLineThickness: toolProperties.cloudLineThickness
+              }, (updatedProperties) => {
+                // Callback to update the UI when cloud properties are extracted
+                console.log('🎛️ ToolManager callback: Updating UI with cloud properties:', updatedProperties);
+                // Call the parent callback to update the UI
+                if (onToolPropertiesUpdate) {
+                  onToolPropertiesUpdate(updatedProperties);
+                }
               });
               toolManager.setCanvas(fabricCanvas);
               toolManager.setActiveTool(activeTool as ToolType);
@@ -2163,7 +2184,8 @@ function PDFViewerComponent({
         opacity: toolProperties.opacity,
         fontSize: toolProperties.fontSize,
         fontWeight: toolProperties.fontWeight,
-        scallopSize: toolProperties.scallopSize
+        scallopSize: toolProperties.scallopSize,
+        cloudLineThickness: toolProperties.cloudLineThickness
       });
     }
   }, [activeTool, toolProperties]);

@@ -21,7 +21,8 @@ export default function MarkupsPage() {
     opacity: 1.0,
     fontSize: 12, // Smaller default font size
     fontWeight: 400, // Default font weight (normal)
-    scallopSize: 8 // Default scallop size for cloud tool
+    scallopSize: 8, // Default scallop size for cloud tool
+    cloudLineThickness: 1 // Default line thickness for cloud tool
   });
   const [showFileBrowser, setShowFileBrowser] = useState(false);
   const [revisionClouds, setRevisionClouds] = useState<Array<{
@@ -225,18 +226,30 @@ Common Issues:
                 onAnnotationAdd={(annotation) => setAnnotations(prev => [...prev, annotation])}
                 onAnnotationUpdate={(annotation) => setAnnotations(prev => prev.map(a => a.id === annotation.id ? annotation : a))}
                 onAnnotationDelete={(id) => setAnnotations(prev => prev.filter(a => a.id !== id))}
-                                 onPDFControlsChange={(controls) => {
-                   setPdfControls(controls);
-                   // Handle tool change requests from PDFViewer
-                   if (controls.activeTool && controls.activeTool !== activeTool) {
-                     console.log('📝 Parent: Tool change requested:', controls.activeTool);
-                     setActiveTool(controls.activeTool);
-                     // Track the last non-select tool for property panel display
-                     if (controls.activeTool !== 'select') {
-                       setLastActiveTool(controls.activeTool);
-                     }
-                   }
-                 }}
+                onPDFControlsChange={(controls) => {
+                  setPdfControls(controls);
+                  // Handle tool change requests from PDFViewer
+                  if (controls.activeTool && controls.activeTool !== activeTool) {
+                    console.log('📝 Parent: Tool change requested:', controls.activeTool);
+                    setActiveTool(controls.activeTool);
+                    // Track the last non-select tool for property panel display
+                    if (controls.activeTool !== 'select') {
+                      setLastActiveTool(controls.activeTool);
+                    }
+                  }
+                }}
+                onToolPropertiesUpdate={(properties) => {
+                  console.log('🎛️ Parent: Updating tool properties from cloud selection:', properties);
+                  setToolProperties({
+                    color: properties.color,
+                    strokeWidth: properties.strokeWidth,
+                    opacity: properties.opacity,
+                    fontSize: properties.fontSize || 12,
+                    fontWeight: properties.fontWeight || 400,
+                    scallopSize: properties.scallopSize || 8,
+                    cloudLineThickness: properties.cloudLineThickness || 1
+                  });
+                }}
                 activeTool={activeTool as any}
                 toolProperties={toolProperties}
                 className="w-full"
@@ -416,6 +429,27 @@ Common Issues:
                         step="1"
                         value={toolProperties.scallopSize || 8}
                         onChange={(e) => setToolProperties(prev => ({ ...prev, scallopSize: parseInt(e.target.value) }))}
+                        className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                      />
+                    </div>
+                  )}
+                  
+                  {/* Cloud Line Thickness Property - Only for cloud tool */}
+                  {(activeTool === 'cloud' || (activeTool === 'select' && lastActiveTool === 'cloud')) && (
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                          Line Thickness
+                        </label>
+                        <span className="text-xs text-gray-500">{toolProperties.cloudLineThickness}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="1"
+                        max="10"
+                        step="1"
+                        value={toolProperties.cloudLineThickness || 1}
+                        onChange={(e) => setToolProperties(prev => ({ ...prev, cloudLineThickness: parseInt(e.target.value) }))}
                         className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
                       />
                     </div>
@@ -605,6 +639,25 @@ Common Issues:
                   {/* Custom Tooltip */}
                   <div className="absolute right-full mr-6 top-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-70 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-[9999]">
                     Scallop: {toolProperties.scallopSize}px
+                    <div className="absolute right-0 top-1/2 transform -translate-y-1/2 translate-x-1 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-l-gray-900"></div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Cloud Line Thickness Property - Only for cloud tool */}
+              {(activeTool === 'cloud' || (activeTool === 'select' && lastActiveTool === 'cloud')) && (
+                <div className="relative group">
+                  <div className="flex items-center justify-center">
+                    <div 
+                      className="tool-property w-8 h-8 rounded-lg border-2 border-gray-300 bg-gray-100 flex items-center justify-center cursor-pointer hover:bg-gray-200 transition-colors"
+                      onClick={() => setShowPropertiesPanel(true)}
+                    >
+                      <div className="text-xs font-bold text-gray-600">{toolProperties.cloudLineThickness}</div>
+                    </div>
+                  </div>
+                  {/* Custom Tooltip */}
+                  <div className="absolute right-full mr-6 top-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-70 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-[9999]">
+                    Line: {toolProperties.cloudLineThickness}px
                     <div className="absolute right-0 top-1/2 transform -translate-y-1/2 translate-x-1 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-l-gray-900"></div>
                   </div>
                 </div>

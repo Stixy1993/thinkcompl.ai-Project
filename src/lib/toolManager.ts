@@ -9,6 +9,7 @@ export interface ToolProperties {
   fontSize?: number;
   fontWeight?: number;
   scallopSize?: number; // New property for cloud scallop size
+  cloudLineThickness?: number; // New property for cloud line thickness
 }
 
 export interface ToolHandler {
@@ -28,9 +29,12 @@ export class ToolManager {
   private startY = 0;
   private justFinishedEditing = false;
   private editingTimeout: NodeJS.Timeout | null = null;
+  private lastCreatedCloudId: string | null = null; // Track the most recently created cloud
+  private onPropertiesUpdate?: (properties: ToolProperties) => void; // Callback to update UI
 
-  constructor(toolProperties: ToolProperties) {
+  constructor(toolProperties: ToolProperties, onPropertiesUpdate?: (properties: ToolProperties) => void) {
     this.toolProperties = toolProperties;
+    this.onPropertiesUpdate = onPropertiesUpdate;
   }
 
   setCanvas(canvas: fabric.Canvas) {
@@ -50,86 +54,223 @@ export class ToolManager {
     this.updateExistingShapes();
   }
 
-  private updateExistingShapes() {
+    private updateExistingShapes() {
     if (!this.canvas) return;
 
     console.log('🔄 Updating existing shapes with properties:', this.toolProperties);
 
+    // Get the currently selected object
+    const activeObject = this.canvas.getActiveObject();
+    console.log('🔄 Active object:', activeObject?.data?.type, activeObject?.data?.id);
+    
     // Update existing shapes to ensure they maintain transparent fill
     const objects = this.canvas.getObjects();
     console.log('📊 Found', objects.length, 'objects on canvas');
     
-    objects.forEach((obj: any) => {
-      if (obj.data?.isAnnotation) {
-        console.log('🎯 Processing annotation:', obj.data.type, obj.data.isPreview ? '(preview)' : '(final)');
-        
-        if (obj.data?.type === 'cloud' && !obj.data?.isPreview) {
-          // For cloud shapes, we need to recreate them with new scallop size
-          // Only update final clouds, not preview clouds
-          console.log('☁️ Updating cloud shape');
-          this.updateCloudShape(obj);
-        } else if (obj.data?.type !== 'cloud') {
-          // For other shapes, just update stroke properties
-          console.log('🎨 Updating stroke properties for', obj.data.type);
-          obj.set({
-            stroke: this.toolProperties.color,
-            strokeWidth: this.toolProperties.strokeWidth,
-            opacity: this.toolProperties.opacity,
-            fill: 'transparent' // Ensure fill stays transparent
-          });
-        }
-      }
+    // Check if we have a selected cloud object or cloud group
+    const selectedCloud = activeObject && activeObject.data?.isAnnotation && 
+                         (activeObject.data?.type === 'cloud' || activeObject.data?.type === 'cloud-group') && 
+                         !activeObject.data?.isPreview;
+    
+    console.log('🎯 Selected cloud:', selectedCloud ? 'YES' : 'NO', 'Active object:', activeObject?.data?.type);
+    console.log('🎯 Active object details:', {
+      hasActiveObject: !!activeObject,
+      isAnnotation: activeObject?.data?.isAnnotation,
+      type: activeObject?.data?.type,
+      isPreview: activeObject?.data?.isPreview,
+      selectedCloud: selectedCloud,
+      activeObjectId: activeObject?.data?.id
     });
+    
+    // ONLY update the selected object, not all objects
+    if (activeObject && activeObject.data?.isAnnotation) {
+      console.log('🎯 Updating selected object:', activeObject.data.type, activeObject.data.id);
+      
+      if ((activeObject.data?.type === 'cloud' || activeObject.data?.type === 'cloud-group') && !activeObject.data?.isPreview) {
+        // For cloud shapes and cloud groups, update properties
+        console.log('☁️ Updating selected cloud shape (including all properties)');
+        this.updateCloudShape(activeObject);
+      } else if (activeObject.data?.type === 'text') {
+        // For text objects, only update fill and opacity
+        console.log('📝 Updating selected text object');
+        activeObject.set({
+          fill: this.toolProperties.color,
+          opacity: this.toolProperties.opacity
+        });
+      } else if (activeObject.data?.type !== 'cloud' && activeObject.data?.type !== 'cloud-group') {
+        // For other shapes (rectangles, circles, arrows), just update stroke properties
+        console.log('🎨 Updating stroke properties for', activeObject.data.type);
+        activeObject.set({
+          stroke: this.toolProperties.color,
+          strokeWidth: this.toolProperties.strokeWidth,
+          opacity: this.toolProperties.opacity,
+          fill: 'transparent' // Ensure fill stays transparent
+        });
+      }
+    }
+    
+    // REMOVED: The fallback logic that was updating the last drawn cloud
+    // Now we ONLY update the selected object, never fall back to last drawn
     
     this.canvas.renderAll();
     console.log('✅ Finished updating existing shapes');
   }
 
-  private updateCloudShape(cloudObj: any) {
-    try {
-      // Use the original size stored in data, not the current bounds
-      // This prevents the shape from changing size when scallop size changes
-      const originalSize = cloudObj.data?.originalSize || 20;
-      
-      console.log('☁️ Updating cloud shape:', { originalSize, scallopSize: this.toolProperties.scallopSize });
-      
-      // Create new cloud with updated properties but same original dimensions
-      const newCloud = this.createCloudShape(originalSize, this.toolProperties);
-      
-      // Copy the original cloud's properties (except the path data)
-      newCloud.set({
-        left: cloudObj.left,
-        top: cloudObj.top,
-        scaleX: cloudObj.scaleX || 1, // Preserve any scaling
-        scaleY: cloudObj.scaleY || 1, // Preserve any scaling
-        selectable: cloudObj.selectable,
-        evented: cloudObj.evented,
-        hasControls: cloudObj.hasControls,
-        hasBorders: cloudObj.hasBorders,
-        lockScalingX: cloudObj.lockScalingX,
-        lockScalingY: cloudObj.lockScalingY,
-        lockRotation: cloudObj.lockRotation,
-        moveCursor: cloudObj.moveCursor,
-        hoverCursor: cloudObj.hoverCursor,
-        data: {
-          ...cloudObj.data,
-          originalSize: originalSize // Keep the original size unchanged
-        }
-      });
-      
-      // Replace the old cloud with the new one
-      const index = this.canvas.getObjects().indexOf(cloudObj);
-      if (index !== -1) {
-        this.canvas.remove(cloudObj);
-        this.canvas.insertAt(newCloud, index);
-        console.log('☁️ Cloud updated successfully');
-      } else {
-        console.error('☁️ Could not find cloud object in canvas');
-      }
-    } catch (error) {
-      console.error('☁️ Error updating cloud shape:', error);
-    }
-  }
+     private updateCloudShape(cloudObj: any) {
+     try {
+       console.log('☁️ Updating cloud shape properties directly');
+       
+       if (cloudObj.data?.type === 'cloud-group') {
+         // Handle cloud groups - update the cloud part of the group
+         const groupObjects = cloudObj.getObjects();
+         const cloudPart = groupObjects.find((obj: any) => obj.data?.type === 'cloud');
+         
+         if (cloudPart) {
+           // Check if scallop size or line thickness changed - if so, regenerate the path
+           const scallopChanged = cloudPart.data?.scallopSize !== this.toolProperties.scallopSize;
+           const lineThicknessChanged = cloudPart.data?.cloudLineThickness !== this.toolProperties.cloudLineThickness;
+           
+           if (scallopChanged || lineThicknessChanged) {
+             // Regenerate the cloud shape with new scallop size
+             const originalSize = cloudPart.data?.originalSize || 20;
+             const newCloud = this.createCloudShape(originalSize, this.toolProperties);
+             
+             // Copy all properties from the old cloud
+             newCloud.set({
+               left: cloudPart.left,
+               top: cloudPart.top,
+               scaleX: cloudPart.scaleX || 1,
+               scaleY: cloudPart.scaleY || 1,
+               selectable: cloudPart.selectable,
+               evented: cloudPart.evented,
+               hasControls: cloudPart.hasControls,
+               hasBorders: cloudPart.hasBorders,
+               lockScalingX: false,
+               lockScalingY: false,
+               lockRotation: cloudPart.lockRotation,
+               moveCursor: cloudPart.moveCursor,
+               hoverCursor: cloudPart.hoverCursor,
+               data: {
+                 ...cloudPart.data,
+                 originalSize: originalSize,
+                 scallopSize: this.toolProperties.scallopSize,
+                 cloudLineThickness: this.toolProperties.cloudLineThickness
+               }
+             });
+             
+             // Replace the cloud part in the group
+             const textPart = groupObjects.find((obj: any) => obj.data?.type === 'text');
+             const newGroup = new (fabric as any).Group([newCloud, textPart], {
+               left: cloudObj.left,
+               top: cloudObj.top,
+               scaleX: cloudObj.scaleX || 1,
+               scaleY: cloudObj.scaleY || 1,
+               selectable: cloudObj.selectable,
+               evented: cloudObj.evented,
+               hasControls: cloudObj.hasControls,
+               hasBorders: cloudObj.hasBorders,
+               lockScalingX: false,
+               lockScalingY: false,
+               lockRotation: cloudObj.lockRotation,
+               moveCursor: cloudObj.moveCursor,
+               hoverCursor: 'grab',
+               subTargetCheck: true,
+               data: {
+                 ...cloudObj.data,
+                 originalSize: originalSize
+               }
+             });
+             
+             // Replace the old group with the new one
+             const index = this.canvas.getObjects().indexOf(cloudObj);
+             if (index !== -1) {
+               this.canvas.remove(cloudObj);
+               this.canvas.insertAt(newGroup, index);
+               this.canvas.setActiveObject(newGroup);
+               console.log('☁️ Cloud group regenerated with new scallop size');
+             }
+           } else {
+             // Just update the properties directly (for color/opacity changes)
+             cloudPart.set({
+               stroke: this.toolProperties.color,
+               strokeWidth: this.toolProperties.cloudLineThickness || this.toolProperties.strokeWidth,
+               opacity: this.toolProperties.opacity
+             });
+             
+             // Update the stored data properties
+             cloudPart.data.scallopSize = this.toolProperties.scallopSize;
+             cloudPart.data.cloudLineThickness = this.toolProperties.cloudLineThickness;
+             
+             // Re-select the group to maintain selection
+             this.canvas.setActiveObject(cloudObj);
+             console.log('☁️ Cloud group properties updated directly');
+           }
+         }
+       } else {
+         // Handle individual cloud objects
+         const scallopChanged = cloudObj.data?.scallopSize !== this.toolProperties.scallopSize;
+         const lineThicknessChanged = cloudObj.data?.cloudLineThickness !== this.toolProperties.cloudLineThickness;
+         
+         if (scallopChanged || lineThicknessChanged) {
+           // Regenerate the cloud shape with new scallop size
+           const originalSize = cloudObj.data?.originalSize || 20;
+           const newCloud = this.createCloudShape(originalSize, this.toolProperties);
+           
+           // Copy all properties from the old cloud
+           newCloud.set({
+             left: cloudObj.left,
+             top: cloudObj.top,
+             scaleX: cloudObj.scaleX || 1,
+             scaleY: cloudObj.scaleY || 1,
+             selectable: cloudObj.selectable,
+             evented: cloudObj.evented,
+             hasControls: cloudObj.hasControls,
+             hasBorders: cloudObj.hasBorders,
+             lockScalingX: false,
+             lockScalingY: false,
+             lockRotation: cloudObj.lockRotation,
+             moveCursor: cloudObj.moveCursor,
+             hoverCursor: cloudObj.hoverCursor,
+             data: {
+               ...cloudObj.data,
+               originalSize: originalSize,
+               scallopSize: this.toolProperties.scallopSize,
+               cloudLineThickness: this.toolProperties.cloudLineThickness
+             }
+           });
+           
+           // Replace the old cloud with the new one
+           const index = this.canvas.getObjects().indexOf(cloudObj);
+           if (index !== -1) {
+             this.canvas.remove(cloudObj);
+             this.canvas.insertAt(newCloud, index);
+             this.canvas.setActiveObject(newCloud);
+             console.log('☁️ Cloud regenerated with new scallop size');
+           }
+         } else {
+           // Just update the properties directly (for color/opacity changes)
+           cloudObj.set({
+             stroke: this.toolProperties.color,
+             strokeWidth: this.toolProperties.cloudLineThickness || this.toolProperties.strokeWidth,
+             opacity: this.toolProperties.opacity
+           });
+           
+           // Update the stored data properties
+           cloudObj.data.scallopSize = this.toolProperties.scallopSize;
+           cloudObj.data.cloudLineThickness = this.toolProperties.cloudLineThickness;
+           
+           // Re-select the cloud to maintain selection
+           this.canvas.setActiveObject(cloudObj);
+           console.log('☁️ Cloud properties updated directly');
+         }
+       }
+       
+       // Force a render to ensure changes are visible
+       this.canvas.renderAll();
+     } catch (error) {
+       console.error('☁️ Error updating cloud shape:', error);
+     }
+   }
 
   private setupEventListeners() {
     if (!this.canvas) return;
@@ -165,9 +306,53 @@ export class ToolManager {
     
     // Check if we clicked on an existing object first
     const target = this.canvas.findTarget(e.e, false);
+    console.log('🎯 Mouse down - target found:', target?.data?.type, target?.data?.id);
+    
     if (target && target.data?.isAnnotation) {
-      // If we clicked on an existing annotation, let Fabric.js handle selection
-      console.log('🎯 Clicked on existing annotation, allowing selection');
+      // If we clicked on an existing annotation, handle selection
+      console.log('🎯 Clicked on existing annotation, handling selection');
+      
+      // Special handling for cloud groups - ensure we select the group, not individual parts
+      if (target.data?.type === 'cloud' || target.data?.type === 'text') {
+        // If we clicked on a cloud or text that's part of a group, find the parent group
+        const objects = this.canvas.getObjects();
+        const parentGroup = objects.find((obj: any) => 
+          obj.data?.type === 'cloud-group' && 
+          obj.getObjects().some((groupObj: any) => groupObj === target)
+        );
+        
+                 if (parentGroup) {
+           console.log('🎯 Found parent cloud group, selecting group instead of individual part');
+           this.canvas.setActiveObject(parentGroup);
+           
+           // Switch to cloud tool when clicking on a cloud group
+           if (this.activeTool !== 'cloud') {
+             console.log('🔄 Switching to cloud tool for cloud group selection');
+             this.setActiveTool('cloud');
+           }
+           
+           // Update control panel with the cloud's properties
+           this.updateControlPanelWithCloudProperties(parentGroup);
+         } else {
+           this.canvas.setActiveObject(target);
+         }
+             } else if (target.data?.type === 'cloud-group') {
+         // Direct click on cloud group
+         this.canvas.setActiveObject(target);
+         
+         // Switch to cloud tool when clicking on a cloud group
+         if (this.activeTool !== 'cloud') {
+           console.log('🔄 Switching to cloud tool for cloud group selection');
+           this.setActiveTool('cloud');
+         }
+         
+         // Update control panel with the cloud's properties
+         this.updateControlPanelWithCloudProperties(target);
+       } else {
+         this.canvas.setActiveObject(target);
+       }
+      
+      this.canvas.renderAll();
       return;
     }
 
@@ -806,36 +991,83 @@ export class ToolManager {
   }
 
   // Cloud Tool Handlers
-    private handleCloudMouseDown(e: any, canvas: fabric.Canvas, toolProperties: ToolProperties) {
+  private handleCloudMouseDown(e: any, canvas: fabric.Canvas, toolProperties: ToolProperties) {
     console.log('☁️ Cloud mouse down');
+    
+    // Check if we clicked on an existing cloud object or cloud group first
+    const target = canvas.findTarget(e.e, false);
+    console.log('☁️ Cloud mouse down - target found:', target?.data?.type, target?.data?.id);
+    
+    if (target && target.data?.isAnnotation && 
+        (target.data?.type === 'cloud' || target.data?.type === 'cloud-group' || target.data?.type === 'text')) {
+      // If we clicked on an existing cloud, just select it and don't create a new one
+      console.log('☁️ Clicked on existing cloud or text, allowing selection');
+      
+      // Special handling for cloud groups - ensure we select the group, not individual parts
+      if (target.data?.type === 'cloud' || target.data?.type === 'text') {
+        // If we clicked on a cloud or text that's part of a group, find the parent group
+        const objects = canvas.getObjects();
+        const parentGroup = objects.find((obj: any) => 
+          obj.data?.type === 'cloud-group' && 
+          obj.getObjects().some((groupObj: any) => groupObj === target)
+        );
+        
+                 if (parentGroup) {
+           console.log('☁️ Found parent cloud group, selecting group instead of individual part');
+           canvas.setActiveObject(parentGroup);
+           
+           // Update control panel with the cloud's properties
+           this.updateControlPanelWithCloudProperties(parentGroup);
+         } else {
+           canvas.setActiveObject(target);
+         }
+      } else {
+        canvas.setActiveObject(target);
+      }
+      
+      canvas.renderAll();
+      return;
+    }
+    
+    // If we clicked on empty space, start drawing mode but don't create cloud yet
     const pointer = canvas.getPointer(e.e);
     this.startX = pointer.x;
     this.startY = pointer.y;
-    
-    // Create a temporary cloud object for preview
-    const cloud = this.createCloudShape(20, toolProperties);
-    cloud.set({
-      left: this.startX, // Position at click point (center origin)
-      top: this.startY,
-      selectable: false,
-      evented: false,
-      data: {
-        isAnnotation: true,
-        type: 'cloud',
-        isPreview: true
-      }
-    });
-    
-    canvas.add(cloud);
-    canvas.renderAll();
+    console.log('☁️ Clicked on empty space, starting drawing mode at', this.startX, this.startY);
   }
 
   private handleCloudMouseMove(e: any, canvas: fabric.Canvas, toolProperties: ToolProperties) {
     if (!this.isDrawing) return;
     
     const pointer = canvas.getPointer(e.e);
+    
+    // Check if we've moved enough to start drawing (small threshold to prevent accidental creation)
+    const moveDistance = Math.sqrt(
+      Math.pow(pointer.x - this.startX, 2) + 
+      Math.pow(pointer.y - this.startY, 2)
+    );
+    
+    if (moveDistance < 5) return; // Don't create cloud until we've moved at least 5 pixels
+    
     const objects = canvas.getObjects();
     const previewCloud = objects.find(obj => obj.data?.isPreview && obj.data?.type === 'cloud');
+    
+    if (!previewCloud) {
+      // Create the preview cloud only when we start dragging
+      const cloud = this.createCloudShape(20, toolProperties);
+      cloud.set({
+        left: this.startX,
+        top: this.startY,
+        selectable: false,
+        evented: false,
+        data: {
+          isAnnotation: true,
+          type: 'cloud',
+          isPreview: true
+        }
+      });
+      canvas.add(cloud);
+    }
     
     if (previewCloud) {
       // Calculate size for square aspect ratio
@@ -867,7 +1099,7 @@ export class ToolManager {
     }
   }
 
-  private handleCloudMouseUp(e: any, canvas: fabric.Canvas, toolProperties: ToolProperties) {
+    private handleCloudMouseUp(e: any, canvas: fabric.Canvas, toolProperties: ToolProperties) {
     console.log('☁️ Cloud mouse up');
     if (!this.isDrawing) return;
     
@@ -875,53 +1107,139 @@ export class ToolManager {
     const objects = canvas.getObjects();
     const previewCloud = objects.find(obj => obj.data?.isPreview && obj.data?.type === 'cloud');
     
-    if (previewCloud) {
-      // Calculate size for square aspect ratio
-      const size = Math.max(
-        Math.abs(pointer.x - this.startX),
-        Math.abs(pointer.y - this.startY)
-      );
-      const minSize = 20; // Minimum size of 20
-      
-      // Remove the preview cloud
-      canvas.remove(previewCloud);
-      
-             // Create final cloud with square aspect ratio
-       const finalCloud = this.createCloudShape(size, toolProperties);
-       finalCloud.set({
-         left: this.startX, // Position at start point (center origin)
-         top: this.startY,
-         selectable: true,
-         evented: true,
-         hasControls: true,
-         hasBorders: true,
-         lockScalingX: false,
-         lockScalingY: false,
-         lockRotation: false,
-         moveCursor: 'grab',
-         hoverCursor: 'grab',
-         data: {
-           isAnnotation: true,
-           type: 'cloud',
-           id: Date.now().toString(),
-           originalSize: size // Store the original size
-         }
-       });
-      
-      canvas.add(finalCloud);
-      
-      // Ensure the cloud is immediately selectable
-      this.canvas.setActiveObject(finalCloud);
-      canvas.renderAll();
-      
-      // Optionally prompt for text after cloud creation
-      setTimeout(() => {
-        const addText = confirm('Would you like to add text to this cloud?');
-        if (addText) {
-          this.addTextToCloud(finalCloud, canvas);
-        }
-      }, 100);
+    // If we don't have a preview cloud, it means we didn't drag enough to create one
+    // Just reset the drawing state and don't create anything
+    if (!previewCloud) {
+      console.log('☁️ No preview cloud found, resetting drawing state');
+      this.startX = 0;
+      this.startY = 0;
+      return;
     }
+    
+    // Calculate size for square aspect ratio
+    const size = Math.max(
+      Math.abs(pointer.x - this.startX),
+      Math.abs(pointer.y - this.startY)
+    );
+    const minSize = 20; // Minimum size of 20
+    
+    // Remove the preview cloud
+    canvas.remove(previewCloud);
+    
+    // Create final cloud with square aspect ratio
+    const finalCloud = this.createCloudShape(size, toolProperties);
+    const cloudId = Date.now().toString();
+    finalCloud.set({
+      left: this.startX, // Position at start point (center origin)
+      top: this.startY,
+      selectable: true,
+      evented: true,
+      hasControls: true,
+      hasBorders: true,
+      lockScalingX: false,
+      lockScalingY: false,
+      lockRotation: false,
+      moveCursor: 'grab',
+      hoverCursor: 'grab',
+      data: {
+        isAnnotation: true,
+        type: 'cloud',
+        id: cloudId,
+        originalSize: size // Store the original size
+      }
+    });
+    
+         // Create text object that will be grouped with the cloud
+     const textObj = new (fabric as any).IText('Type text here', {
+       left: this.startX,
+       top: this.startY,
+       fontSize: 12,
+       fill: '#999999', // Start with grey placeholder like regular text boxes
+       fontWeight: 400,
+       opacity: 1.0,
+       fontFamily: 'Arial, sans-serif',
+       fontStyle: 'normal',
+       selectable: true,
+       editable: true,
+       evented: true,
+       moveCursor: 'grab',
+       hoverCursor: 'grab',
+       backgroundColor: 'rgba(255, 255, 255, 0.9)',
+       stroke: '',
+       strokeWidth: 0,
+       padding: 4,
+       hasControls: false,
+       hasBorders: true,
+       borderColor: '#3B82F6',
+       lockScalingX: true,
+       lockScalingY: true,
+       originX: 'center',
+       originY: 'center',
+       data: {
+         isAnnotation: true,
+         type: 'text',
+         id: (Date.now() + 1).toString(),
+         cloudId: cloudId,
+         isPlaceholder: true
+       }
+     });
+     
+     // Handle text editing for the cloud text
+     textObj.on('editing:entered', () => {
+       console.log('🖊️ Cloud text editing started');
+       if (textObj.data?.isPlaceholder) {
+         textObj.selectAll();
+         textObj.removeChars(0, textObj.text.length);
+         textObj.fill = '#000000';
+         textObj.data.isPlaceholder = false;
+         canvas.renderAll();
+       }
+     });
+     
+     textObj.on('editing:exited', () => {
+       console.log('🖊️ Cloud text editing ended');
+       // Only restore placeholder if completely empty
+       if (textObj.text.trim() === '') {
+         textObj.text = 'Type text here';
+         textObj.fill = '#999999';
+         textObj.fontWeight = 'normal';
+         textObj.data.isPlaceholder = true;
+         canvas.renderAll();
+       }
+     });
+     
+     // Create a group containing the cloud and text
+     const cloudGroup = new (fabric as any).Group([finalCloud, textObj], {
+       selectable: true,
+       evented: true,
+       hasControls: true,
+       hasBorders: true,
+       lockScalingX: false,
+       lockScalingY: false,
+       lockRotation: false,
+       moveCursor: 'grab',
+       hoverCursor: 'grab',
+       subTargetCheck: true, // Enable sub-target checking for text editing
+       data: {
+         isAnnotation: true,
+         type: 'cloud-group',
+         id: cloudId,
+         originalSize: size
+       }
+     });
+    
+    // Track this as the most recently created cloud
+    this.lastCreatedCloudId = cloudId;
+    
+    canvas.add(cloudGroup);
+    
+    // Ensure the cloud group is immediately selectable
+    this.canvas.setActiveObject(cloudGroup);
+    canvas.renderAll();
+    
+    // Reset drawing state
+    this.startX = 0;
+    this.startY = 0;
   }
 
   private addTextToCloud(cloud: any, canvas: fabric.Canvas) {
@@ -969,13 +1287,14 @@ export class ToolManager {
     canvas.renderAll();
   }
 
-  private createCloudShape(size: number, toolProperties: ToolProperties) {
+    private createCloudShape(size: number, toolProperties: ToolProperties) {
     // Create a square cloud shape with consistent scallops
     const baseSize = Math.max(size, 20); // Minimum size of 20
     
     // Use the passed toolProperties or fall back to the instance's toolProperties
     const properties = toolProperties || this.toolProperties;
     const scallopRadius = properties.scallopSize || 8; // Use configurable scallop size with default
+    const lineThickness = properties.cloudLineThickness || properties.strokeWidth || 1; // Use cloud-specific line thickness or fall back to stroke width
     
     // Calculate square corners (centered around 0,0)
     const halfSize = baseSize / 2;
@@ -1041,13 +1360,13 @@ export class ToolManager {
     const cloudPath = new (fabric as any).Path(pathData, {
       fill: 'transparent',
       stroke: properties.color,
-      strokeWidth: properties.strokeWidth,
+      strokeWidth: lineThickness, // Use the cloud-specific line thickness
       opacity: properties.opacity,
       selectable: false,
       evented: false,
-                 originX: 'center',
-           originY: 'center'
-         });
+      originX: 'center',
+      originY: 'center'
+    });
     
     return cloudPath;
   }
@@ -1103,5 +1422,66 @@ export class ToolManager {
       this.canvas.off('mouse:move');
       this.canvas.off('mouse:up');
     }
+  }
+
+  private extractCloudProperties(cloudObj: any): ToolProperties {
+    // Extract the current properties from a cloud object
+    const properties: ToolProperties = {
+      color: this.toolProperties.color,
+      strokeWidth: this.toolProperties.strokeWidth,
+      opacity: this.toolProperties.opacity,
+      fontSize: this.toolProperties.fontSize,
+      fontWeight: this.toolProperties.fontWeight,
+      scallopSize: this.toolProperties.scallopSize,
+      cloudLineThickness: this.toolProperties.cloudLineThickness
+    };
+
+    if (cloudObj.data?.type === 'cloud-group') {
+      // For cloud groups, extract properties from the cloud part
+      const groupObjects = cloudObj.getObjects();
+      const cloudPart = groupObjects.find((obj: any) => obj.data?.type === 'cloud');
+      
+      if (cloudPart) {
+        properties.color = cloudPart.stroke || properties.color;
+        properties.strokeWidth = cloudPart.strokeWidth || properties.strokeWidth;
+        properties.opacity = cloudPart.opacity || properties.opacity;
+        
+        // Extract cloud-specific properties from data
+        if (cloudPart.data?.scallopSize !== undefined) {
+          properties.scallopSize = cloudPart.data.scallopSize;
+        }
+        if (cloudPart.data?.cloudLineThickness !== undefined) {
+          properties.cloudLineThickness = cloudPart.data.cloudLineThickness;
+        }
+      }
+    } else if (cloudObj.data?.type === 'cloud') {
+      // For individual clouds
+      properties.color = cloudObj.stroke || properties.color;
+      properties.strokeWidth = cloudObj.strokeWidth || properties.strokeWidth;
+      properties.opacity = cloudObj.opacity || properties.opacity;
+      
+      // Extract cloud-specific properties from data
+      if (cloudObj.data?.scallopSize !== undefined) {
+        properties.scallopSize = cloudObj.data.scallopSize;
+      }
+      if (cloudObj.data?.cloudLineThickness !== undefined) {
+        properties.cloudLineThickness = cloudObj.data.cloudLineThickness;
+      }
+    }
+
+    return properties;
+  }
+
+  private updateControlPanelWithCloudProperties(cloudObj: any) {
+    if (!this.onPropertiesUpdate) return;
+    
+    const cloudProperties = this.extractCloudProperties(cloudObj);
+    console.log('🎛️ Updating control panel with cloud properties:', cloudProperties);
+    
+    // Update the tool properties with the cloud's properties
+    this.toolProperties = { ...this.toolProperties, ...cloudProperties };
+    
+    // Notify the UI to update the control panel
+    this.onPropertiesUpdate(this.toolProperties);
   }
 }

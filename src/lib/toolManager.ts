@@ -8,6 +8,7 @@ export interface ToolProperties {
   opacity: number;
   fontSize?: number;
   fontWeight?: number;
+  textAlign?: 'left' | 'center' | 'right' | 'justify'; // Text alignment property
   scallopSize?: number; // New property for cloud scallop size
   cloudLineThickness?: number; // New property for cloud line thickness
 }
@@ -67,10 +68,10 @@ export class ToolManager {
     const objects = this.canvas.getObjects();
     console.log('📊 Found', objects.length, 'objects on canvas');
     
-    // Check if we have a selected cloud object or cloud group
-    const selectedCloud = activeObject && activeObject.data?.isAnnotation && 
-                         (activeObject.data?.type === 'cloud' || activeObject.data?.type === 'cloud-group') && 
-                         !activeObject.data?.isPreview;
+         // Check if we have a selected cloud object
+     const selectedCloud = activeObject && activeObject.data?.isAnnotation && 
+                          activeObject.data?.type === 'cloud' && 
+                          !activeObject.data?.isPreview;
     
     console.log('🎯 Selected cloud:', selectedCloud ? 'YES' : 'NO', 'Active object:', activeObject?.data?.type);
     console.log('🎯 Active object details:', {
@@ -86,20 +87,68 @@ export class ToolManager {
     if (activeObject && activeObject.data?.isAnnotation) {
       console.log('🎯 Updating selected object:', activeObject.data.type, activeObject.data.id);
       
-      if ((activeObject.data?.type === 'cloud' || activeObject.data?.type === 'cloud-group') && !activeObject.data?.isPreview) {
-        // For cloud shapes and cloud groups, update properties
-        console.log('☁️ Updating selected cloud shape (including all properties)');
-        this.updateCloudShape(activeObject);
-      } else if (activeObject.data?.type === 'text') {
-        // For text objects, only update fill and opacity
+             if ((activeObject.data?.type === 'cloud') && !activeObject.data?.isPreview) {
+         // For cloud shapes, update properties
+         console.log('☁️ Updating selected cloud shape (including all properties)');
+         this.updateCloudShape(activeObject);
+       } else if (activeObject.data?.type === 'text') {
+        // For text objects, update color, fontSize, fontWeight, opacity, and textAlign
         console.log('📝 Updating selected text object');
+        const currentFill = activeObject.fill;
+        const isPlaceholder = activeObject.data?.isPlaceholder;
+        
+        // Only change color if it's not a placeholder and the current color is visible
+        let newFill = currentFill;
+        if (!isPlaceholder && (currentFill === '#999999' || currentFill === 'rgba(153, 153, 153, 1)')) {
+          // If it's placeholder color, change to black
+          newFill = '#000000';
+        } else if (isPlaceholder) {
+          // Keep placeholder color
+          newFill = '#999999';
+        } else {
+          // Keep current color if it's already visible
+          newFill = currentFill;
+        }
+        
         activeObject.set({
-          fill: this.toolProperties.color,
-          opacity: this.toolProperties.opacity
+          fill: newFill,
+          fontSize: this.toolProperties.fontSize || 12,
+          fontWeight: this.toolProperties.fontWeight || 400,
+          opacity: this.toolProperties.opacity,
+          textAlign: this.toolProperties.textAlign || 'left'
         });
-      } else if (activeObject.data?.type !== 'cloud' && activeObject.data?.type !== 'cloud-group') {
-        // For other shapes (rectangles, circles, arrows), just update stroke properties
-        console.log('🎨 Updating stroke properties for', activeObject.data.type);
+      } else if (activeObject.data?.type === 'callout-group') {
+        // For callout groups, update the text object inside
+        console.log('💬 Updating selected callout group');
+        const textObj = activeObject.getObjects().find((obj: any) => obj.data?.type === 'text');
+        if (textObj) {
+          const currentFill = textObj.fill;
+          const isPlaceholder = textObj.data?.isPlaceholder;
+          
+          // Only change color if it's not a placeholder and the current color is visible
+          let newFill = currentFill;
+          if (!isPlaceholder && (currentFill === '#999999' || currentFill === 'rgba(153, 153, 153, 1)')) {
+            // If it's placeholder color, change to black
+            newFill = '#000000';
+          } else if (isPlaceholder) {
+            // Keep placeholder color
+            newFill = '#999999';
+          } else {
+            // Keep current color if it's already visible
+            newFill = currentFill;
+          }
+          
+          textObj.set({
+            fill: newFill,
+            fontSize: this.toolProperties.fontSize || 12,
+            fontWeight: this.toolProperties.fontWeight || 400,
+            opacity: this.toolProperties.opacity,
+            textAlign: this.toolProperties.textAlign || 'left'
+          });
+        }
+             } else if (activeObject.data?.type !== 'cloud') {
+         // For other shapes (rectangles, circles, arrows), just update stroke properties
+         console.log('🎨 Updating stroke properties for', activeObject.data.type);
         activeObject.set({
           stroke: this.toolProperties.color,
           strokeWidth: this.toolProperties.strokeWidth,
@@ -120,149 +169,61 @@ export class ToolManager {
      try {
        console.log('☁️ Updating cloud shape properties directly');
        
-       if (cloudObj.data?.type === 'cloud-group') {
-         // Handle cloud groups - update the cloud part of the group
-         const groupObjects = cloudObj.getObjects();
-         const cloudPart = groupObjects.find((obj: any) => obj.data?.type === 'cloud');
+       // Handle individual cloud objects
+       const scallopChanged = cloudObj.data?.scallopSize !== this.toolProperties.scallopSize;
+       const lineThicknessChanged = cloudObj.data?.cloudLineThickness !== this.toolProperties.cloudLineThickness;
+       
+       if (scallopChanged || lineThicknessChanged) {
+         // Regenerate the cloud shape with new scallop size
+         const originalSize = cloudObj.data?.originalSize || 20;
+         const newCloud = this.createCloudShape(originalSize, this.toolProperties);
          
-         if (cloudPart) {
-           // Check if scallop size or line thickness changed - if so, regenerate the path
-           const scallopChanged = cloudPart.data?.scallopSize !== this.toolProperties.scallopSize;
-           const lineThicknessChanged = cloudPart.data?.cloudLineThickness !== this.toolProperties.cloudLineThickness;
-           
-           if (scallopChanged || lineThicknessChanged) {
-             // Regenerate the cloud shape with new scallop size
-             const originalSize = cloudPart.data?.originalSize || 20;
-             const newCloud = this.createCloudShape(originalSize, this.toolProperties);
-             
-             // Copy all properties from the old cloud
-             newCloud.set({
-               left: cloudPart.left,
-               top: cloudPart.top,
-               scaleX: cloudPart.scaleX || 1,
-               scaleY: cloudPart.scaleY || 1,
-               selectable: cloudPart.selectable,
-               evented: cloudPart.evented,
-               hasControls: cloudPart.hasControls,
-               hasBorders: cloudPart.hasBorders,
-               lockScalingX: false,
-               lockScalingY: false,
-               lockRotation: cloudPart.lockRotation,
-               moveCursor: cloudPart.moveCursor,
-               hoverCursor: cloudPart.hoverCursor,
-               data: {
-                 ...cloudPart.data,
-                 originalSize: originalSize,
-                 scallopSize: this.toolProperties.scallopSize,
-                 cloudLineThickness: this.toolProperties.cloudLineThickness
-               }
-             });
-             
-             // Replace the cloud part in the group
-             const textPart = groupObjects.find((obj: any) => obj.data?.type === 'text');
-             const newGroup = new (fabric as any).Group([newCloud, textPart], {
-               left: cloudObj.left,
-               top: cloudObj.top,
-               scaleX: cloudObj.scaleX || 1,
-               scaleY: cloudObj.scaleY || 1,
-               selectable: cloudObj.selectable,
-               evented: cloudObj.evented,
-               hasControls: cloudObj.hasControls,
-               hasBorders: cloudObj.hasBorders,
-               lockScalingX: false,
-               lockScalingY: false,
-               lockRotation: cloudObj.lockRotation,
-               moveCursor: cloudObj.moveCursor,
-               hoverCursor: 'grab',
-               subTargetCheck: true,
-               data: {
-                 ...cloudObj.data,
-                 originalSize: originalSize
-               }
-             });
-             
-             // Replace the old group with the new one
-             const index = this.canvas.getObjects().indexOf(cloudObj);
-             if (index !== -1) {
-               this.canvas.remove(cloudObj);
-               this.canvas.insertAt(newGroup, index);
-               this.canvas.setActiveObject(newGroup);
-               console.log('☁️ Cloud group regenerated with new scallop size');
-             }
-           } else {
-             // Just update the properties directly (for color/opacity changes)
-             cloudPart.set({
-               stroke: this.toolProperties.color,
-               strokeWidth: this.toolProperties.cloudLineThickness || this.toolProperties.strokeWidth,
-               opacity: this.toolProperties.opacity
-             });
-             
-             // Update the stored data properties
-             cloudPart.data.scallopSize = this.toolProperties.scallopSize;
-             cloudPart.data.cloudLineThickness = this.toolProperties.cloudLineThickness;
-             
-             // Re-select the group to maintain selection
-             this.canvas.setActiveObject(cloudObj);
-             console.log('☁️ Cloud group properties updated directly');
+         // Copy all properties from the old cloud
+         newCloud.set({
+           left: cloudObj.left,
+           top: cloudObj.top,
+           scaleX: cloudObj.scaleX || 1,
+           scaleY: cloudObj.scaleY || 1,
+           selectable: cloudObj.selectable,
+           evented: cloudObj.evented,
+           hasControls: cloudObj.hasControls,
+           hasBorders: cloudObj.hasBorders,
+           lockScalingX: false,
+           lockScalingY: false,
+           lockRotation: cloudObj.lockRotation,
+           moveCursor: cloudObj.moveCursor,
+           hoverCursor: cloudObj.hoverCursor,
+           data: {
+             ...cloudObj.data,
+             originalSize: originalSize,
+             scallopSize: this.toolProperties.scallopSize,
+             cloudLineThickness: this.toolProperties.cloudLineThickness
            }
+         });
+         
+         // Replace the old cloud with the new one
+         const index = this.canvas.getObjects().indexOf(cloudObj);
+         if (index !== -1) {
+           this.canvas.remove(cloudObj);
+           this.canvas.insertAt(newCloud, index);
+           this.canvas.setActiveObject(newCloud);
+           console.log('☁️ Cloud regenerated with new scallop size');
          }
        } else {
-         // Handle individual cloud objects
-         const scallopChanged = cloudObj.data?.scallopSize !== this.toolProperties.scallopSize;
-         const lineThicknessChanged = cloudObj.data?.cloudLineThickness !== this.toolProperties.cloudLineThickness;
+         // Just update the properties directly (for color/opacity changes)
+         cloudObj.set({
+           stroke: this.toolProperties.color,
+           strokeWidth: this.toolProperties.cloudLineThickness || this.toolProperties.strokeWidth,
+           opacity: this.toolProperties.opacity
+         });
          
-         if (scallopChanged || lineThicknessChanged) {
-           // Regenerate the cloud shape with new scallop size
-           const originalSize = cloudObj.data?.originalSize || 20;
-           const newCloud = this.createCloudShape(originalSize, this.toolProperties);
-           
-           // Copy all properties from the old cloud
-           newCloud.set({
-             left: cloudObj.left,
-             top: cloudObj.top,
-             scaleX: cloudObj.scaleX || 1,
-             scaleY: cloudObj.scaleY || 1,
-             selectable: cloudObj.selectable,
-             evented: cloudObj.evented,
-             hasControls: cloudObj.hasControls,
-             hasBorders: cloudObj.hasBorders,
-             lockScalingX: false,
-             lockScalingY: false,
-             lockRotation: cloudObj.lockRotation,
-             moveCursor: cloudObj.moveCursor,
-             hoverCursor: cloudObj.hoverCursor,
-             data: {
-               ...cloudObj.data,
-               originalSize: originalSize,
-               scallopSize: this.toolProperties.scallopSize,
-               cloudLineThickness: this.toolProperties.cloudLineThickness
-             }
-           });
-           
-           // Replace the old cloud with the new one
-           const index = this.canvas.getObjects().indexOf(cloudObj);
-           if (index !== -1) {
-             this.canvas.remove(cloudObj);
-             this.canvas.insertAt(newCloud, index);
-             this.canvas.setActiveObject(newCloud);
-             console.log('☁️ Cloud regenerated with new scallop size');
-           }
-         } else {
-           // Just update the properties directly (for color/opacity changes)
-           cloudObj.set({
-             stroke: this.toolProperties.color,
-             strokeWidth: this.toolProperties.cloudLineThickness || this.toolProperties.strokeWidth,
-             opacity: this.toolProperties.opacity
-           });
-           
-           // Update the stored data properties
-           cloudObj.data.scallopSize = this.toolProperties.scallopSize;
-           cloudObj.data.cloudLineThickness = this.toolProperties.cloudLineThickness;
-           
-           // Re-select the cloud to maintain selection
-           this.canvas.setActiveObject(cloudObj);
-           console.log('☁️ Cloud properties updated directly');
-         }
+         // Update the stored data properties
+         cloudObj.data.scallopSize = this.toolProperties.scallopSize;
+         cloudObj.data.cloudLineThickness = this.toolProperties.cloudLineThickness;
+         
+         // Re-select the cloud to maintain selection
+         this.canvas.setActiveObject(cloudObj);
+         console.log('☁️ Cloud properties updated directly');
        }
        
        // Force a render to ensure changes are visible
@@ -312,37 +273,14 @@ export class ToolManager {
       // If we clicked on an existing annotation, handle selection
       console.log('🎯 Clicked on existing annotation, handling selection');
       
-      // Special handling for cloud groups - ensure we select the group, not individual parts
-      if (target.data?.type === 'cloud' || target.data?.type === 'text') {
-        // If we clicked on a cloud or text that's part of a group, find the parent group
-        const objects = this.canvas.getObjects();
-        const parentGroup = objects.find((obj: any) => 
-          obj.data?.type === 'cloud-group' && 
-          obj.getObjects().some((groupObj: any) => groupObj === target)
-        );
-        
-                 if (parentGroup) {
-           console.log('🎯 Found parent cloud group, selecting group instead of individual part');
-           this.canvas.setActiveObject(parentGroup);
-           
-           // Switch to cloud tool when clicking on a cloud group
-           if (this.activeTool !== 'cloud') {
-             console.log('🔄 Switching to cloud tool for cloud group selection');
-             this.setActiveTool('cloud');
-           }
-           
-           // Update control panel with the cloud's properties
-           this.updateControlPanelWithCloudProperties(parentGroup);
-         } else {
-           this.canvas.setActiveObject(target);
-         }
-             } else if (target.data?.type === 'cloud-group') {
-         // Direct click on cloud group
+             // Special handling for clouds - ensure we select the cloud directly
+       if (target.data?.type === 'cloud') {
+         // Direct click on cloud
          this.canvas.setActiveObject(target);
          
-         // Switch to cloud tool when clicking on a cloud group
+         // Switch to cloud tool when clicking on a cloud
          if (this.activeTool !== 'cloud') {
-           console.log('🔄 Switching to cloud tool for cloud group selection');
+           console.log('🔄 Switching to cloud tool for cloud selection');
            this.setActiveTool('cloud');
          }
          
@@ -456,12 +394,12 @@ export class ToolManager {
         onMouseDown: this.handleStampMouseDown.bind(this),
         cursor: 'crosshair'
       },
-      callout: {
-        onMouseDown: this.handleShapeMouseDown.bind(this),
-        onMouseMove: this.handleShapeMouseMove.bind(this),
-        onMouseUp: this.handleShapeMouseUp.bind(this),
-        cursor: 'crosshair'
-      },
+             callout: {
+         onMouseDown: this.handleCalloutMouseDown.bind(this),
+         onMouseMove: this.handleCalloutMouseMove.bind(this),
+         onMouseUp: this.handleCalloutMouseUp.bind(this),
+         cursor: 'crosshair'
+       },
       measurement: {
         onMouseDown: this.handleShapeMouseDown.bind(this),
         onMouseMove: this.handleShapeMouseMove.bind(this),
@@ -565,6 +503,7 @@ export class ToolManager {
       opacity: toolProperties.opacity || 1.0,
       fontFamily: 'Arial, sans-serif',
       fontStyle: 'normal',
+      textAlign: toolProperties.textAlign || 'left', // Add text alignment
       selectable: true,
       editable: true,
       evented: true,
@@ -579,6 +518,10 @@ export class ToolManager {
       borderColor: '#3B82F6',
       lockScalingX: true,
       lockScalingY: true,
+      // Add text wrapping and boundary constraints
+      width: 200, // Set a default width for text wrapping
+      wordWrap: 'break-word', // Enable word wrapping
+      splitByGrapheme: false, // Don't split by individual characters
       data: {
         isAnnotation: true,
         type: 'text',
@@ -733,6 +676,44 @@ export class ToolManager {
     }
   }
 
+  private createCalloutArrowhead(startX: number, startY: number, endX: number, endY: number, toolProperties: ToolProperties, arrowheadNumber: number) {
+    // Calculate arrow direction from start to end
+    const dx = endX - startX;
+    const dy = endY - startY;
+    const angle = Math.atan2(dy, dx);
+    
+    // Arrowhead size
+    const arrowheadLength = toolProperties.strokeWidth * 3;
+    const arrowheadAngle = Math.PI / 6; // 30 degrees
+    
+    // Calculate arrowhead points - positioned at start but pointing towards end
+    const x1 = startX + arrowheadLength * Math.cos(angle - arrowheadAngle);
+    const y1 = startY + arrowheadLength * Math.sin(angle - arrowheadAngle);
+    const x2 = startX + arrowheadLength * Math.cos(angle + arrowheadAngle);
+    const y2 = startY + arrowheadLength * Math.sin(angle + arrowheadAngle);
+    
+    // Create arrowhead line based on which part of the arrowhead
+    const points = arrowheadNumber === 1 ? [startX, startY, x1, y1] : [startX, startY, x2, y2];
+    
+    const arrowhead = new (fabric as any).Line(points, {
+      stroke: toolProperties.color,
+      strokeWidth: toolProperties.strokeWidth,
+      opacity: toolProperties.opacity,
+      selectable: false,
+      evented: false,
+      hasControls: false,
+      hasBorders: false,
+      data: {
+        isAnnotation: true,
+        type: 'arrowhead',
+        parentId: Date.now().toString(),
+        arrowheadNumber: arrowheadNumber
+      }
+    });
+    
+    return arrowhead;
+  }
+
   private createArrowhead(arrow: any, endX: number, endY: number, toolProperties: ToolProperties, arrowheadNumber: number) {
     // Calculate arrow direction
     const dx = endX - this.startX;
@@ -743,7 +724,7 @@ export class ToolManager {
     const arrowheadLength = toolProperties.strokeWidth * 3;
     const arrowheadAngle = Math.PI / 6; // 30 degrees
     
-    // Calculate arrowhead points
+    // Calculate arrowhead points - pointing TOWARDS the end point
     const x1 = endX - arrowheadLength * Math.cos(angle - arrowheadAngle);
     const y1 = endY - arrowheadLength * Math.sin(angle - arrowheadAngle);
     const x2 = endX - arrowheadLength * Math.cos(angle + arrowheadAngle);
@@ -764,6 +745,44 @@ export class ToolManager {
         isAnnotation: true,
         type: 'arrowhead',
         parentId: arrow.data.id,
+        arrowheadNumber: arrowheadNumber
+      }
+    });
+    
+    return arrowhead;
+  }
+
+  private createCalloutArrowhead(startX: number, startY: number, endX: number, endY: number, toolProperties: ToolProperties, arrowheadNumber: number) {
+    // Calculate arrow direction from start to end
+    const dx = endX - startX;
+    const dy = endY - startY;
+    const angle = Math.atan2(dy, dx);
+    
+    // Arrowhead size
+    const arrowheadLength = toolProperties.strokeWidth * 3;
+    const arrowheadAngle = Math.PI / 6; // 30 degrees
+    
+    // Calculate arrowhead points - positioned at start but pointing towards end
+    const x1 = startX + arrowheadLength * Math.cos(angle - arrowheadAngle);
+    const y1 = startY + arrowheadLength * Math.sin(angle - arrowheadAngle);
+    const x2 = startX + arrowheadLength * Math.cos(angle + arrowheadAngle);
+    const y2 = startY + arrowheadLength * Math.sin(angle + arrowheadAngle);
+    
+    // Create arrowhead line based on which part of the arrowhead
+    const points = arrowheadNumber === 1 ? [startX, startY, x1, y1] : [startX, startY, x2, y2];
+    
+    const arrowhead = new (fabric as any).Line(points, {
+      stroke: toolProperties.color,
+      strokeWidth: toolProperties.strokeWidth,
+      opacity: toolProperties.opacity,
+      selectable: false,
+      evented: false,
+      hasControls: false,
+      hasBorders: false,
+      data: {
+        isAnnotation: true,
+        type: 'arrowhead',
+        parentId: Date.now().toString(),
         arrowheadNumber: arrowheadNumber
       }
     });
@@ -994,40 +1013,30 @@ export class ToolManager {
   private handleCloudMouseDown(e: any, canvas: fabric.Canvas, toolProperties: ToolProperties) {
     console.log('☁️ Cloud mouse down');
     
-    // Check if we clicked on an existing cloud object or cloud group first
-    const target = canvas.findTarget(e.e, false);
-    console.log('☁️ Cloud mouse down - target found:', target?.data?.type, target?.data?.id);
-    
-    if (target && target.data?.isAnnotation && 
-        (target.data?.type === 'cloud' || target.data?.type === 'cloud-group' || target.data?.type === 'text')) {
-      // If we clicked on an existing cloud, just select it and don't create a new one
-      console.log('☁️ Clicked on existing cloud or text, allowing selection');
-      
-      // Special handling for cloud groups - ensure we select the group, not individual parts
-      if (target.data?.type === 'cloud' || target.data?.type === 'text') {
-        // If we clicked on a cloud or text that's part of a group, find the parent group
-        const objects = canvas.getObjects();
-        const parentGroup = objects.find((obj: any) => 
-          obj.data?.type === 'cloud-group' && 
-          obj.getObjects().some((groupObj: any) => groupObj === target)
-        );
-        
-                 if (parentGroup) {
-           console.log('☁️ Found parent cloud group, selecting group instead of individual part');
-           canvas.setActiveObject(parentGroup);
-           
-           // Update control panel with the cloud's properties
-           this.updateControlPanelWithCloudProperties(parentGroup);
-         } else {
-           canvas.setActiveObject(target);
-         }
-      } else {
-        canvas.setActiveObject(target);
-      }
-      
-      canvas.renderAll();
-      return;
-    }
+         // Check if we clicked on an existing cloud object first
+     const target = canvas.findTarget(e.e, false);
+     console.log('☁️ Cloud mouse down - target found:', target?.data?.type, target?.data?.id);
+     
+     if (target && target.data?.isAnnotation && 
+         target.data?.type === 'cloud') {
+       // If we clicked on an existing cloud, just select it and don't create a new one
+       console.log('☁️ Clicked on existing cloud, allowing selection');
+       
+       // Direct click on cloud
+       canvas.setActiveObject(target);
+       
+       // Switch to cloud tool when clicking on a cloud
+       if (this.activeTool !== 'cloud') {
+         console.log('🔄 Switching to cloud tool for cloud selection');
+         this.setActiveTool('cloud');
+       }
+       
+       // Update control panel with the cloud's properties
+       this.updateControlPanelWithCloudProperties(target);
+       
+       canvas.renderAll();
+       return;
+     }
     
     // If we clicked on empty space, start drawing mode but don't create cloud yet
     const pointer = canvas.getPointer(e.e);
@@ -1126,90 +1135,12 @@ export class ToolManager {
     // Remove the preview cloud
     canvas.remove(previewCloud);
     
-    // Create final cloud with square aspect ratio
-    const finalCloud = this.createCloudShape(size, toolProperties);
-    const cloudId = Date.now().toString();
-    finalCloud.set({
-      left: this.startX, // Position at start point (center origin)
-      top: this.startY,
-      selectable: true,
-      evented: true,
-      hasControls: true,
-      hasBorders: true,
-      lockScalingX: false,
-      lockScalingY: false,
-      lockRotation: false,
-      moveCursor: 'grab',
-      hoverCursor: 'grab',
-      data: {
-        isAnnotation: true,
-        type: 'cloud',
-        id: cloudId,
-        originalSize: size // Store the original size
-      }
-    });
-    
-         // Create text object that will be grouped with the cloud
-     const textObj = new (fabric as any).IText('Type text here', {
-       left: this.startX,
+         // Create final cloud with square aspect ratio
+     const finalCloud = this.createCloudShape(size, toolProperties);
+     const cloudId = Date.now().toString();
+     finalCloud.set({
+       left: this.startX, // Position at start point
        top: this.startY,
-       fontSize: 12,
-       fill: '#999999', // Start with grey placeholder like regular text boxes
-       fontWeight: 400,
-       opacity: 1.0,
-       fontFamily: 'Arial, sans-serif',
-       fontStyle: 'normal',
-       selectable: true,
-       editable: true,
-       evented: true,
-       moveCursor: 'grab',
-       hoverCursor: 'grab',
-       backgroundColor: 'rgba(255, 255, 255, 0.9)',
-       stroke: '',
-       strokeWidth: 0,
-       padding: 4,
-       hasControls: false,
-       hasBorders: true,
-       borderColor: '#3B82F6',
-       lockScalingX: true,
-       lockScalingY: true,
-       originX: 'center',
-       originY: 'center',
-       data: {
-         isAnnotation: true,
-         type: 'text',
-         id: (Date.now() + 1).toString(),
-         cloudId: cloudId,
-         isPlaceholder: true
-       }
-     });
-     
-     // Handle text editing for the cloud text
-     textObj.on('editing:entered', () => {
-       console.log('🖊️ Cloud text editing started');
-       if (textObj.data?.isPlaceholder) {
-         textObj.selectAll();
-         textObj.removeChars(0, textObj.text.length);
-         textObj.fill = '#000000';
-         textObj.data.isPlaceholder = false;
-         canvas.renderAll();
-       }
-     });
-     
-     textObj.on('editing:exited', () => {
-       console.log('🖊️ Cloud text editing ended');
-       // Only restore placeholder if completely empty
-       if (textObj.text.trim() === '') {
-         textObj.text = 'Type text here';
-         textObj.fill = '#999999';
-         textObj.fontWeight = 'normal';
-         textObj.data.isPlaceholder = true;
-         canvas.renderAll();
-       }
-     });
-     
-     // Create a group containing the cloud and text
-     const cloudGroup = new (fabric as any).Group([finalCloud, textObj], {
        selectable: true,
        evented: true,
        hasControls: true,
@@ -1219,27 +1150,27 @@ export class ToolManager {
        lockRotation: false,
        moveCursor: 'grab',
        hoverCursor: 'grab',
-       subTargetCheck: true, // Enable sub-target checking for text editing
        data: {
          isAnnotation: true,
-         type: 'cloud-group',
+         type: 'cloud',
          id: cloudId,
-         originalSize: size
+         originalSize: size // Store the original size
        }
      });
+     
+     // Add the cloud directly to canvas (no group, no text)
+     canvas.add(finalCloud);
+     
+     // Ensure the cloud is immediately selectable
+     this.canvas.setActiveObject(finalCloud);
+     canvas.renderAll();
     
-    // Track this as the most recently created cloud
-    this.lastCreatedCloudId = cloudId;
-    
-    canvas.add(cloudGroup);
-    
-    // Ensure the cloud group is immediately selectable
-    this.canvas.setActiveObject(cloudGroup);
-    canvas.renderAll();
-    
-    // Reset drawing state
-    this.startX = 0;
-    this.startY = 0;
+         // Track this as the most recently created cloud
+     this.lastCreatedCloudId = cloudId;
+     
+     // Reset drawing state
+     this.startX = 0;
+     this.startY = 0;
   }
 
   private addTextToCloud(cloud: any, canvas: fabric.Canvas) {
@@ -1391,20 +1322,379 @@ export class ToolManager {
     }
   }
 
-  // Shape Tool Handlers (placeholder for other shapes)
-  private handleShapeMouseDown(e: any, canvas: fabric.Canvas, toolProperties: ToolProperties) {
-    console.log('🔲 Shape mouse down:', this.activeTool);
-    // TODO: Implement other shapes (cloud, callout, measurement, etc.)
-  }
+         // Callout Tool Handlers
+    private handleCalloutMouseDown(e: any, canvas: fabric.Canvas, toolProperties: ToolProperties) {
+      console.log('💬 Callout mouse down');
+      const pointer = canvas.getPointer(e.e);
+      this.startX = pointer.x;
+      this.startY = pointer.y;
+      
+      // Don't create anything yet - wait for drag to start
+      console.log('💬 Callout started at:', this.startX, this.startY);
+    }
 
-  private handleShapeMouseMove(e: any, canvas: fabric.Canvas, toolProperties: ToolProperties) {
-    // TODO: Implement other shapes
-  }
+           private handleCalloutMouseMove(e: any, canvas: fabric.Canvas, toolProperties: ToolProperties) {
+      if (!this.isDrawing) return;
+      
+      const pointer = canvas.getPointer(e.e);
+      
+      // Check if we've moved enough to start drawing (small threshold to prevent accidental creation)
+      const moveDistance = Math.sqrt(
+        Math.pow(pointer.x - this.startX, 2) + 
+        Math.pow(pointer.y - this.startY, 2)
+      );
+      
+      if (moveDistance < 5) return; // Don't create callout until we've moved at least 5 pixels
+      
+      const objects = canvas.getObjects();
+      const previewCallout = objects.find(obj => obj.data?.isPreview && obj.data?.type === 'callout');
+      
+             if (!previewCallout) {
+         // Create the preview arrow only when we start dragging
+         const arrow = new (fabric as any).Line([this.startX, this.startY, pointer.x, pointer.y], {
+           stroke: toolProperties.color,
+           strokeWidth: toolProperties.strokeWidth,
+           opacity: toolProperties.opacity,
+           selectable: false,
+           evented: false,
+           data: {
+             isAnnotation: true,
+             type: 'callout',
+             isPreview: true,
+             isArrow: true
+           }
+         });
+         
+                   // Add arrowhead to the preview at the START point (where we clicked)
+          const arrowhead1 = this.createCalloutArrowhead(this.startX, this.startY, pointer.x, pointer.y, toolProperties, 1);
+          const arrowhead2 = this.createCalloutArrowhead(this.startX, this.startY, pointer.x, pointer.y, toolProperties, 2);
+        
+        // Set preview data on arrowheads
+        arrowhead1.set({
+          data: {
+            isAnnotation: true,
+            type: 'callout',
+            isPreview: true,
+            isArrowhead: true,
+            arrowheadNumber: 1
+          }
+        });
+        
+        arrowhead2.set({
+          data: {
+            isAnnotation: true,
+            type: 'callout',
+            isPreview: true,
+            isArrowhead: true,
+            arrowheadNumber: 2
+          }
+        });
+        
+        // Add individual objects to canvas (not as a group)
+        canvas.add(arrow);
+        canvas.add(arrowhead1);
+        canvas.add(arrowhead2);
+      }
+      
+      if (previewCallout) {
+        // Find the preview arrow and arrowheads
+        const previewArrow = objects.find(obj => obj.data?.isPreview && obj.data?.type === 'callout' && obj.data?.isArrow);
+        const previewArrowhead1 = objects.find(obj => obj.data?.isPreview && obj.data?.type === 'callout' && obj.data?.isArrowhead && obj.data?.arrowheadNumber === 1);
+        const previewArrowhead2 = objects.find(obj => obj.data?.isPreview && obj.data?.type === 'callout' && obj.data?.isArrowhead && obj.data?.arrowheadNumber === 2);
+        
+        if (previewArrow) {
+          // Update the arrow position
+          previewArrow.set({
+            x2: pointer.x,
+            y2: pointer.y
+          });
+          
+                                 // Update arrowheads
+            if (previewArrowhead1 && previewArrowhead2) {
+              // Recalculate arrowhead positions at the START point
+              const newArrowhead1 = this.createCalloutArrowhead(this.startX, this.startY, pointer.x, pointer.y, toolProperties, 1);
+              const newArrowhead2 = this.createCalloutArrowhead(this.startX, this.startY, pointer.x, pointer.y, toolProperties, 2);
+            
+            previewArrowhead1.set({
+              x1: newArrowhead1.x1,
+              y1: newArrowhead1.y1,
+              x2: newArrowhead1.x2,
+              y2: newArrowhead1.y2
+            });
+            
+            previewArrowhead2.set({
+              x1: newArrowhead2.x1,
+              y1: newArrowhead2.y1,
+              x2: newArrowhead2.x2,
+              y2: newArrowhead2.y2
+            });
+          }
+          
+          canvas.renderAll();
+        }
+      }
+    }
 
-  private handleShapeMouseUp(e: any, canvas: fabric.Canvas, toolProperties: ToolProperties) {
-    console.log('🔲 Shape mouse up:', this.activeTool);
-    // TODO: Implement other shapes
-  }
+       private handleCalloutMouseUp(e: any, canvas: fabric.Canvas, toolProperties: ToolProperties) {
+      console.log('💬 Callout mouse up');
+      if (!this.isDrawing) return;
+      
+      const pointer = canvas.getPointer(e.e);
+      const objects = canvas.getObjects();
+      // Find all preview callout objects
+      const previewArrow = objects.find(obj => obj.data?.isPreview && obj.data?.type === 'callout' && obj.data?.isArrow);
+      const previewArrowhead1 = objects.find(obj => obj.data?.isPreview && obj.data?.type === 'callout' && obj.data?.isArrowhead && obj.data?.arrowheadNumber === 1);
+      const previewArrowhead2 = objects.find(obj => obj.data?.isPreview && obj.data?.type === 'callout' && obj.data?.isArrowhead && obj.data?.arrowheadNumber === 2);
+      
+      // If we don't have a preview arrow, it means we didn't drag enough to create one
+      // Just reset the drawing state and don't create anything
+      if (!previewArrow) {
+        console.log('💬 No preview callout found, resetting drawing state');
+        this.startX = 0;
+        this.startY = 0;
+        return;
+      }
+      
+      // Remove all preview objects
+      if (previewArrow) canvas.remove(previewArrow);
+      if (previewArrowhead1) canvas.remove(previewArrowhead1);
+      if (previewArrowhead2) canvas.remove(previewArrowhead2);
+      
+             // Create final arrow (separate from the group)
+       const finalArrow = new (fabric as any).Line([this.startX, this.startY, pointer.x, pointer.y], {
+         stroke: toolProperties.color,
+         strokeWidth: toolProperties.strokeWidth,
+         opacity: toolProperties.opacity,
+         selectable: false,
+         evented: false,
+         hasControls: false,
+         hasBorders: false,
+         data: {
+           isAnnotation: true,
+           type: 'callout-arrow',
+           arrowOriginX: this.startX,
+           arrowOriginY: this.startY
+         }
+       });
+       
+       // Add arrowhead to the final arrow at the START point
+       const arrowhead1 = this.createCalloutArrowhead(this.startX, this.startY, pointer.x, pointer.y, toolProperties, 1);
+       const arrowhead2 = this.createCalloutArrowhead(this.startX, this.startY, pointer.x, pointer.y, toolProperties, 2);
+       
+       // Set arrowhead data
+       arrowhead1.set({
+         data: {
+           isAnnotation: true,
+           type: 'arrowhead',
+           arrowheadNumber: 1,
+           arrowOriginX: this.startX,
+           arrowOriginY: this.startY
+         }
+       });
+       
+       arrowhead2.set({
+         data: {
+           isAnnotation: true,
+           type: 'arrowhead',
+           arrowheadNumber: 2,
+           arrowOriginX: this.startX,
+           arrowOriginY: this.startY
+         }
+       });
+       
+               // Create text box at the end of the arrow
+        const textBox = new (fabric as any).Rect({
+          left: pointer.x - 50, // Position text box so its center is at the arrow end
+          top: pointer.y - 20,
+          width: 100,
+          height: 40,
+          fill: 'rgba(255, 255, 255, 1.0)', // 100% opaque white to hide the arrow behind
+          stroke: toolProperties.color,
+          strokeWidth: toolProperties.strokeWidth,
+          opacity: toolProperties.opacity,
+          rx: 4,
+          ry: 4,
+          selectable: false,
+          evented: false,
+          data: {
+            isAnnotation: true,
+            type: 'callout-box'
+          }
+        });
+       
+                       // Create text object for the callout
+        const textObj = new (fabric as any).IText('Type text here', {
+          left: pointer.x - 45, // Position text to align with the centered text box
+          top: pointer.y - 15,
+          fontSize: toolProperties.fontSize || 12,
+          fill: '#999999', // Start with grey placeholder
+          fontWeight: toolProperties.fontWeight || 400,
+          opacity: toolProperties.opacity || 1.0,
+          fontFamily: 'Arial, sans-serif',
+          fontStyle: 'normal',
+          textAlign: toolProperties.textAlign || 'left', // Add text alignment
+          selectable: true,
+          editable: true,
+          evented: true,
+          moveCursor: 'text',
+          hoverCursor: 'text',
+          backgroundColor: 'transparent',
+          stroke: '',
+          strokeWidth: 0,
+          padding: 4,
+          hasControls: false,
+          hasBorders: false,
+          lockScalingX: true, // Prevent manual scaling
+          lockScalingY: true, // Prevent manual scaling
+          // Add text wrapping and boundary constraints
+          width: 200, // Set a default width for text wrapping
+          wordWrap: 'break-word', // Enable word wrapping
+          splitByGrapheme: false, // Don't split by individual characters
+          originX: 'left',
+          originY: 'top',
+          data: {
+            isAnnotation: true,
+            type: 'text',
+            id: (Date.now() + 1).toString(),
+            isPlaceholder: true
+          }
+        });
+        
+        // Force initial text color to be visible
+        setTimeout(() => {
+          textObj.fill = '#999999';
+          canvas.renderAll();
+        }, 100);
+        
+                 // Handle text editing for the callout text
+         textObj.on('editing:entered', () => {
+           console.log('🖊️ Callout text editing started');
+           
+           // Bring the text to the front when editing starts
+           canvas.bringToFront(textObj);
+           
+           if (textObj.data?.isPlaceholder) {
+             textObj.selectAll();
+             textObj.removeChars(0, textObj.text.length);
+             textObj.fill = '#000000'; // Set to black when editing starts
+             textObj.data.isPlaceholder = false;
+             canvas.renderAll();
+           } else {
+             // Even if not placeholder, ensure text is black when editing
+             textObj.fill = '#000000';
+             canvas.renderAll();
+           }
+         });
+        
+        textObj.on('editing:exited', () => {
+          console.log('🖊️ Callout text editing ended');
+          
+          // Set flag to prevent immediate new text box creation (same as text tool)
+          this.justFinishedEditing = true;
+          
+          if (this.editingTimeout) clearTimeout(this.editingTimeout);
+          this.editingTimeout = setTimeout(() => {
+            this.justFinishedEditing = false;
+            console.log('🔓 Callout text editing cooldown ended - new text boxes allowed');
+          }, 300);
+          
+          // Only restore placeholder if completely empty
+          if (textObj.text.trim() === '') {
+            textObj.text = 'Type text here';
+            textObj.fill = '#999999';
+            textObj.fontWeight = 'normal';
+            textObj.data.isPlaceholder = true;
+            canvas.renderAll();
+          } else {
+            // Ensure text remains visible after editing
+            textObj.fill = '#000000';
+            canvas.renderAll();
+          }
+        });
+        
+                 // Add double-click handler for easier text editing (same as text tool)
+         textObj.on('mousedblclick', () => {
+           console.log('🖊️ Callout text double-clicked, entering edit mode');
+           
+           // Bring the text to the front when editing starts
+           canvas.bringToFront(textObj);
+           
+           textObj.enterEditing();
+           if (textObj.data?.isPlaceholder) {
+             textObj.selectAll();
+             textObj.removeChars(0, textObj.text.length);
+             textObj.fill = '#000000';
+             textObj.data.isPlaceholder = false;
+           } else {
+             // Ensure text is black even if not placeholder
+             textObj.fill = '#000000';
+           }
+           canvas.renderAll();
+         });
+       
+       // Create a group containing ONLY the text box and text (not the arrow)
+       const calloutGroup = new (fabric as any).Group([textBox, textObj], {
+         selectable: true,
+         evented: true,
+         hasControls: true,
+         hasBorders: true,
+         lockScalingX: false,
+         lockScalingY: false,
+         lockRotation: false,
+         moveCursor: 'grab',
+         hoverCursor: 'grab',
+         subTargetCheck: true,
+         data: {
+           isAnnotation: true,
+           type: 'callout-group',
+           id: Date.now().toString()
+         }
+       });
+       
+               // Add event handlers to update arrow when text box group is moved
+        calloutGroup.on('moving', (e: any) => {
+          this.updateCalloutArrow(finalArrow, arrowhead1, arrowhead2, calloutGroup, toolProperties);
+          // Force re-render to clear any artifacts
+          canvas.renderAll();
+        });
+        
+        calloutGroup.on('modified', (e: any) => {
+          this.updateCalloutArrow(finalArrow, arrowhead1, arrowhead2, calloutGroup, toolProperties);
+          // Force re-render to clear any artifacts
+          canvas.renderAll();
+        });
+       
+               // Add all elements to canvas separately
+        // Add arrow and arrowheads first (behind)
+        canvas.add(finalArrow);
+        canvas.add(arrowhead1);
+        canvas.add(arrowhead2);
+        
+        // Add text box group last (in front)
+        canvas.add(calloutGroup);
+       
+       this.canvas.setActiveObject(calloutGroup);
+       canvas.renderAll();
+      
+      // Reset drawing state
+      this.startX = 0;
+      this.startY = 0;
+    }
+
+               // Shape Tool Handlers (placeholder for other shapes)
+    private handleShapeMouseDown(e: any, canvas: fabric.Canvas, toolProperties: ToolProperties) {
+      console.log('🔲 Shape mouse down:', this.activeTool);
+      // TODO: Implement other shapes (cloud, callout, measurement, etc.)
+    }
+
+    private handleShapeMouseMove(e: any, canvas: fabric.Canvas, toolProperties: ToolProperties) {
+      // TODO: Implement other shapes
+    }
+
+    private handleShapeMouseUp(e: any, canvas: fabric.Canvas, toolProperties: ToolProperties) {
+      console.log('🔲 Shape mouse up:', this.activeTool);
+      // TODO: Implement other shapes
+    }
 
   // Stamp Tool Handler (placeholder for now)
   private handleStampMouseDown(e: any, canvas: fabric.Canvas, toolProperties: ToolProperties) {
@@ -1424,53 +1714,117 @@ export class ToolManager {
     }
   }
 
-  private extractCloudProperties(cloudObj: any): ToolProperties {
-    // Extract the current properties from a cloud object
-    const properties: ToolProperties = {
-      color: this.toolProperties.color,
-      strokeWidth: this.toolProperties.strokeWidth,
-      opacity: this.toolProperties.opacity,
-      fontSize: this.toolProperties.fontSize,
-      fontWeight: this.toolProperties.fontWeight,
-      scallopSize: this.toolProperties.scallopSize,
-      cloudLineThickness: this.toolProperties.cloudLineThickness
-    };
-
-    if (cloudObj.data?.type === 'cloud-group') {
-      // For cloud groups, extract properties from the cloud part
-      const groupObjects = cloudObj.getObjects();
-      const cloudPart = groupObjects.find((obj: any) => obj.data?.type === 'cloud');
+       private updateCalloutArrow(arrow: any, arrowhead1: any, arrowhead2: any, calloutGroup: any, toolProperties: ToolProperties) {
+    // Get the stored arrow origin from the arrow's data
+    const arrowOriginX = arrow.data.arrowOriginX;
+    const arrowOriginY = arrow.data.arrowOriginY;
+    
+    // Get the text box's current position from the group
+    const textBox = calloutGroup.getObjects().find((obj: any) => obj.data?.type === 'callout-box');
+    
+    if (!textBox) return;
+    
+    // Get the group's absolute center position on the canvas
+    const groupCenter = calloutGroup.getCenterPoint();
+    const textBoxCenterX = groupCenter.x;
+    const textBoxCenterY = groupCenter.y;
+    
+    // Update the arrow to point from the fixed origin to the center of the text box
+    arrow.set({
+      x1: arrowOriginX,
+      y1: arrowOriginY,
+      x2: textBoxCenterX,
+      y2: textBoxCenterY
+    });
+    
+    // Update arrowheads if they exist
+    if (arrowhead1 && arrowhead2) {
+      // Recalculate arrowhead positions at the START point, pointing towards the center
+      const newArrowhead1 = this.createCalloutArrowhead(arrowOriginX, arrowOriginY, textBoxCenterX, textBoxCenterY, toolProperties, 1);
+      const newArrowhead2 = this.createCalloutArrowhead(arrowOriginX, arrowOriginY, textBoxCenterX, textBoxCenterY, toolProperties, 2);
       
-      if (cloudPart) {
-        properties.color = cloudPart.stroke || properties.color;
-        properties.strokeWidth = cloudPart.strokeWidth || properties.strokeWidth;
-        properties.opacity = cloudPart.opacity || properties.opacity;
-        
-        // Extract cloud-specific properties from data
-        if (cloudPart.data?.scallopSize !== undefined) {
-          properties.scallopSize = cloudPart.data.scallopSize;
-        }
-        if (cloudPart.data?.cloudLineThickness !== undefined) {
-          properties.cloudLineThickness = cloudPart.data.cloudLineThickness;
-        }
-      }
-    } else if (cloudObj.data?.type === 'cloud') {
-      // For individual clouds
-      properties.color = cloudObj.stroke || properties.color;
-      properties.strokeWidth = cloudObj.strokeWidth || properties.strokeWidth;
-      properties.opacity = cloudObj.opacity || properties.opacity;
+      arrowhead1.set({
+        x1: newArrowhead1.x1,
+        y1: newArrowhead1.y1,
+        x2: newArrowhead1.x2,
+        y2: newArrowhead1.y2
+      });
       
-      // Extract cloud-specific properties from data
-      if (cloudObj.data?.scallopSize !== undefined) {
-        properties.scallopSize = cloudObj.data.scallopSize;
-      }
-      if (cloudObj.data?.cloudLineThickness !== undefined) {
-        properties.cloudLineThickness = cloudObj.data.cloudLineThickness;
-      }
+      arrowhead2.set({
+        x1: newArrowhead2.x1,
+        y1: newArrowhead2.y1,
+        x2: newArrowhead2.x2,
+        y2: newArrowhead2.y2
+      });
     }
-
-    return properties;
+    
+    // Re-render the canvas to show the updated arrow and arrowheads
+    if (this.canvas) {
+      this.canvas.renderAll();
+    }
   }
+
+  private findClosestPointOnRectangle(px: number, py: number, left: number, top: number, right: number, bottom: number) {
+    // Find the closest point on the rectangle EDGE to the point (px, py)
+    // First, find the closest point on the rectangle bounds
+    const closestX = Math.max(left, Math.min(right, px));
+    const closestY = Math.max(top, Math.min(bottom, py));
+    
+    // Now determine which edge is closest and snap to that edge
+    const distToLeft = Math.abs(px - left);
+    const distToRight = Math.abs(px - right);
+    const distToTop = Math.abs(py - top);
+    const distToBottom = Math.abs(py - bottom);
+    
+    // Find the minimum distance to any edge
+    const minDist = Math.min(distToLeft, distToRight, distToTop, distToBottom);
+    
+    let finalX = closestX;
+    let finalY = closestY;
+    
+    // Snap to the closest edge
+    if (minDist === distToLeft) {
+      finalX = left;
+    } else if (minDist === distToRight) {
+      finalX = right;
+    } else if (minDist === distToTop) {
+      finalY = top;
+    } else if (minDist === distToBottom) {
+      finalY = bottom;
+    }
+    
+    return { x: finalX, y: finalY };
+  }
+
+  private extractCloudProperties(cloudObj: any): ToolProperties {
+     // Extract the current properties from a cloud object
+     const properties: ToolProperties = {
+       color: this.toolProperties.color,
+       strokeWidth: this.toolProperties.strokeWidth,
+       opacity: this.toolProperties.opacity,
+       fontSize: this.toolProperties.fontSize,
+       fontWeight: this.toolProperties.fontWeight,
+       scallopSize: this.toolProperties.scallopSize,
+       cloudLineThickness: this.toolProperties.cloudLineThickness
+     };
+
+     // For individual clouds
+     if (cloudObj.data?.type === 'cloud') {
+       properties.color = cloudObj.stroke || properties.color;
+       properties.strokeWidth = cloudObj.strokeWidth || properties.strokeWidth;
+       properties.opacity = cloudObj.opacity || properties.opacity;
+       
+       // Extract cloud-specific properties from data
+       if (cloudObj.data?.scallopSize !== undefined) {
+         properties.scallopSize = cloudObj.data.scallopSize;
+       }
+       if (cloudObj.data?.cloudLineThickness !== undefined) {
+         properties.cloudLineThickness = cloudObj.data.cloudLineThickness;
+       }
+     }
+
+     return properties;
+   }
 
   private updateControlPanelWithCloudProperties(cloudObj: any) {
     if (!this.onPropertiesUpdate) return;

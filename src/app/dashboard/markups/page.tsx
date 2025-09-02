@@ -22,7 +22,10 @@ export default function MarkupsPage() {
     fontSize: 12, // Smaller default font size
     fontWeight: 400, // Default font weight (normal)
     scallopSize: 8, // Default scallop size for cloud tool
-    cloudLineThickness: 1 // Default line thickness for cloud tool
+    cloudLineThickness: 1, // Default line thickness for cloud tool
+    textAlign: 'left' as 'left' | 'center' | 'right', // Default text alignment
+    fontStyle: 'normal' as 'normal' | 'italic', // Default font style
+    textDecoration: 'none' as 'none' | 'underline' // Default text decoration
   });
   const [showFileBrowser, setShowFileBrowser] = useState(false);
   const [revisionClouds, setRevisionClouds] = useState<Array<{
@@ -247,7 +250,10 @@ Common Issues:
                     fontSize: properties.fontSize || 12,
                     fontWeight: properties.fontWeight || 400,
                     scallopSize: properties.scallopSize || 8,
-                    cloudLineThickness: properties.cloudLineThickness || 1
+                    cloudLineThickness: properties.cloudLineThickness || 1,
+                    textAlign: properties.textAlign || 'left',
+                    fontStyle: properties.fontStyle || 'normal',
+                    textDecoration: properties.textDecoration || 'none'
                   });
                 }}
                 activeTool={activeTool as any}
@@ -455,8 +461,82 @@ Common Issues:
                     </div>
                   )}
                   
-                  {/* Text Size Property - Only for text tool */}
-                  {(activeTool === 'text' || (activeTool === 'select' && lastActiveTool === 'text')) && (
+                  {/* Text Properties - Only for text and callout tools */}
+                  {(activeTool === 'text' || activeTool === 'callout' || (activeTool === 'select' && (lastActiveTool === 'text' || lastActiveTool === 'callout'))) && (
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                          Text Properties
+                        </label>
+                        <span className="text-xs text-gray-500">{toolProperties.textAlign}</span>
+                      </div>
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => setToolProperties(prev => ({ ...prev, fontWeight: prev.fontWeight === 700 ? 400 : 700 }))}
+                          className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                            toolProperties.fontWeight === 700 ? 'bg-blue-200' : 'hover:bg-blue-200'
+                          }`}
+                          title="Bold"
+                        >
+                          <div className="text-sm font-black text-gray-700">B</div>
+                        </button>
+                        <button
+                          onClick={() => setToolProperties(prev => ({ ...prev, fontStyle: prev.fontStyle === 'italic' ? 'normal' : 'italic' }))}
+                          className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                            toolProperties.fontStyle === 'italic' ? 'bg-blue-200' : 'hover:bg-blue-200'
+                          }`}
+                          title="Italic"
+                        >
+                          <div className="text-xs font-semibold text-gray-700" style={{ fontStyle: 'italic' }}>I</div>
+                        </button>
+                        <button
+                          onClick={() => setToolProperties(prev => ({ ...prev, textDecoration: prev.textDecoration === 'underline' ? 'none' : 'underline' }))}
+                          className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                            toolProperties.textDecoration === 'underline' ? 'bg-blue-200' : 'hover:bg-blue-200'
+                          }`}
+                          title="Underline"
+                        >
+                          <div className="text-xs font-semibold text-gray-700" style={{ textDecoration: 'underline' }}>U</div>
+                        </button>
+                        <button
+                          onClick={() => setToolProperties(prev => ({ ...prev, textAlign: 'left' }))}
+                          className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                            toolProperties.textAlign === 'left' ? 'bg-blue-200' : 'hover:bg-blue-200'
+                          }`}
+                          title="Left Align"
+                        >
+                          <svg className="w-4 h-4 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h12M4 18h16" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => setToolProperties(prev => ({ ...prev, textAlign: 'center' }))}
+                          className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                            toolProperties.textAlign === 'center' ? 'bg-blue-200' : 'hover:bg-blue-200'
+                          }`}
+                          title="Center Align"
+                        >
+                          <svg className="w-4 h-4 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => setToolProperties(prev => ({ ...prev, textAlign: 'right' }))}
+                          className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                            toolProperties.textAlign === 'right' ? 'bg-blue-200' : 'hover:bg-blue-200'
+                          }`}
+                          title="Right Align"
+                        >
+                          <svg className="w-4 h-4 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 6h16M12 12h16M8 18h16" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Text Size Property - Only for text and callout tools */}
+                  {(activeTool === 'text' || activeTool === 'callout' || (activeTool === 'select' && (lastActiveTool === 'text' || lastActiveTool === 'callout'))) && (
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">
@@ -473,32 +553,6 @@ Common Issues:
                         onChange={(e) => setToolProperties(prev => ({ ...prev, fontSize: parseInt(e.target.value) }))}
                         className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
                       />
-                    </div>
-                  )}
-                  
-                  {/* Text Weight Property - Only for text tool */}
-                  {(activeTool === 'text' || (activeTool === 'select' && lastActiveTool === 'text')) && (
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                          Text Weight
-                        </label>
-                        <span className="text-xs text-gray-500">{toolProperties.fontWeight}</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="100"
-                        max="900"
-                        step="100"
-                        value={toolProperties.fontWeight || 400}
-                        onChange={(e) => setToolProperties(prev => ({ ...prev, fontWeight: parseInt(e.target.value) }))}
-                        className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
-                      />
-                      <div className="flex justify-between text-xs text-gray-400 mt-1">
-                        <span>Thin</span>
-                        <span>Normal</span>
-                        <span>Bold</span>
-                      </div>
                     </div>
                   )}
                   

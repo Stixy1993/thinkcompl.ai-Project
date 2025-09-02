@@ -127,6 +127,8 @@ interface PDFViewerProps {
     opacity: number;
     fontSize?: number;
     fontWeight?: number;
+    fontStyle?: 'normal' | 'italic';
+    textAlign?: 'left' | 'center' | 'right' | 'justify';
     scallopSize?: number;
     cloudLineThickness?: number;
   };
@@ -149,6 +151,8 @@ interface PDFViewerProps {
     opacity: number;
     fontSize?: number;
     fontWeight?: number;
+    fontStyle?: 'normal' | 'italic';
+    textAlign?: 'left' | 'center' | 'right' | 'justify';
     scallopSize?: number;
     cloudLineThickness?: number;
   }) => void;
@@ -186,6 +190,8 @@ function PDFViewerComponent({
     opacity: 1.0,
     fontSize: 12,
     fontWeight: 400,
+    fontStyle: 'normal',
+    textAlign: 'left',
     scallopSize: 8,
     cloudLineThickness: 1
   };
@@ -1131,12 +1137,20 @@ function PDFViewerComponent({
         angle: -90
       }),
              new (fabric as any).IText('Add comment...', {
-        fontSize: 12,
+        fontSize: toolProperties.fontSize || 12,
         fill: '#333333',
+        fontWeight: toolProperties.fontWeight || 400,
+        opacity: toolProperties.opacity || 1.0,
+        textAlign: toolProperties.textAlign || 'left',
         left: 10,
         top: 10,
         width: 100,
-        editable: true
+        editable: true,
+        // Add text wrapping and boundary constraints
+        wordWrap: 'break-word', // Enable word wrapping
+        splitByGrapheme: false, // Don't split by individual characters
+        lockScalingX: true, // Prevent manual scaling
+        lockScalingY: true // Prevent manual scaling
       })
     ], {
       left: x,
@@ -1996,6 +2010,7 @@ function PDFViewerComponent({
         opacity: toolProperties.opacity || 1.0,
         fontFamily: 'Arial, sans-serif',
         fontStyle: 'normal',
+        textAlign: toolProperties.textAlign || 'left', // Add text alignment
         selectable: true,
         editable: true,
         evented: true,
@@ -2010,6 +2025,10 @@ function PDFViewerComponent({
         borderColor: '#3B82F6',
         lockScalingX: true, // Prevent manual scaling
         lockScalingY: true, // Prevent manual scaling
+        // Add text wrapping and boundary constraints
+        width: 200, // Set a default width for text wrapping
+        wordWrap: 'break-word', // Enable word wrapping
+        splitByGrapheme: false, // Don't split by individual characters
         data: {
           isAnnotation: true,
           type: 'text',
@@ -2142,20 +2161,36 @@ function PDFViewerComponent({
         
         // Update the active object with new properties
         if (activeObject.type === 'i-text' || activeObject.type === 'text') {
-           // For text objects, update color, fontSize, fontWeight, and opacity
+           // For text objects, update color, fontSize, fontWeight, opacity, and textAlign
            console.log('✏️ Setting text properties:', {
              color: toolProperties.color,
              fontSize: toolProperties.fontSize,
              fontWeight: toolProperties.fontWeight,
-             opacity: toolProperties.opacity
+             opacity: toolProperties.opacity,
+             textAlign: toolProperties.textAlign
            });
            activeObject.set({
              fill: toolProperties.color,
              fontSize: toolProperties.fontSize || 12,
              fontWeight: toolProperties.fontWeight || 400,
-             opacity: toolProperties.opacity || 1.0
+             opacity: toolProperties.opacity || 1.0,
+             textAlign: toolProperties.textAlign || 'left'
            });
            canvas.renderAll();
+        } else if (activeObject.type === 'group' && activeObject.data?.type === 'callout') {
+          // For callout groups, update the text object inside
+          console.log('💬 Updating callout group text properties');
+          const textObj = activeObject.getObjects().find((obj: any) => obj.type === 'i-text' || obj.type === 'text');
+          if (textObj) {
+            textObj.set({
+              fill: toolProperties.color,
+              fontSize: toolProperties.fontSize || 12,
+              fontWeight: toolProperties.fontWeight || 400,
+              opacity: toolProperties.opacity || 1.0,
+              textAlign: toolProperties.textAlign || 'left'
+            });
+            canvas.renderAll();
+          }
          } else {
           // For shapes, update color and other properties
           console.log('🔲 Setting shape color to:', toolProperties.color);
@@ -2184,6 +2219,7 @@ function PDFViewerComponent({
         opacity: toolProperties.opacity,
         fontSize: toolProperties.fontSize,
         fontWeight: toolProperties.fontWeight,
+        textAlign: toolProperties.textAlign,
         scallopSize: toolProperties.scallopSize,
         cloudLineThickness: toolProperties.cloudLineThickness
       });

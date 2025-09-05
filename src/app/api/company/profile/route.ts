@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
           console.error('Firebase Storage upload error:', uploadError);
           return NextResponse.json({ 
             error: 'Failed to upload logo to Firebase Storage',
-            details: uploadError.message 
+            details: uploadError instanceof Error ? uploadError.message : 'Unknown upload error' 
           }, { status: 500 });
         }
       }

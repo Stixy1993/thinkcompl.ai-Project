@@ -11,6 +11,11 @@ export interface ToolProperties {
   textAlign?: 'left' | 'center' | 'right' | 'justify'; // Text alignment property
   scallopSize?: number; // New property for cloud scallop size
   cloudLineThickness?: number; // New property for cloud line thickness
+  // New optional styling controls
+  fontStyle?: 'normal' | 'italic';
+  underline?: boolean;
+  // Where color should apply for composite annotations like callout
+  colorTarget?: 'border' | 'text' | 'both';
 }
 
 export interface ToolHandler {
@@ -111,16 +116,66 @@ export class ToolManager {
         }
         
         activeObject.set({
-          fill: newFill,
+          fill: (this.toolProperties.colorTarget === 'border') ? newFill : this.toolProperties.color || newFill,
           fontSize: this.toolProperties.fontSize || 12,
-          fontWeight: this.toolProperties.fontWeight || 400,
+          fontWeight: this.toolProperties.fontWeight || 300,
+          fontStyle: this.toolProperties.fontStyle || 'normal',
+          underline: !!this.toolProperties.underline,
           opacity: this.toolProperties.opacity,
           textAlign: this.toolProperties.textAlign || 'left'
         });
+        // Ensure text has no stroke regardless of stroke width slider
+        (activeObject as any).set({ stroke: '', strokeWidth: 0 });
+
+        // If this text lives inside a callout group, resize the box to fit and apply stroke width to border/arrow
+        try {
+          const parentGroup = (activeObject as any).group;
+          if (parentGroup && parentGroup.data?.type === 'callout-group') {
+            const textBox = parentGroup.getObjects().find((obj: any) => obj.data?.type === 'callout-box');
+            // recompute text dimensions before measuring
+            (activeObject as any)._forceClearCache && (activeObject as any)._forceClearCache();
+            (activeObject as any).initDimensions && (activeObject as any).initDimensions();
+            if (textBox) {
+              // Always apply stroke width to border (do not affect text)
+              textBox.set({ strokeWidth: this.toolProperties.strokeWidth });
+              // Apply border color only if color target includes border
+              if ((this.toolProperties.colorTarget !== 'text')) {
+                textBox.set({ stroke: this.toolProperties.color, opacity: this.toolProperties.opacity });
+              }
+
+              // Update linked arrow(s) for this callout
+              try {
+                const groupId = parentGroup.data?.id;
+                if (groupId && this.canvas) {
+                  const all = this.canvas.getObjects();
+                  const linkedArrow = all.find((o: any) => o.data?.type === 'callout-arrow' && o.data?.calloutGroupId === groupId);
+                  const linkedHeads = all.filter((o: any) => o.data?.type === 'arrowhead' && o.data?.calloutGroupId === groupId);
+                  if (linkedArrow) {
+                    linkedArrow.set({
+                      strokeWidth: this.toolProperties.strokeWidth,
+                      opacity: this.toolProperties.opacity,
+                      ...(this.toolProperties.colorTarget !== 'text' ? { stroke: this.toolProperties.color } : {})
+                    });
+                  }
+                  if (linkedHeads && linkedHeads.length) {
+                    linkedHeads.forEach((h: any) => h.set({
+                      strokeWidth: this.toolProperties.strokeWidth,
+                      opacity: this.toolProperties.opacity,
+                      ...(this.toolProperties.colorTarget !== 'text' ? { stroke: this.toolProperties.color } : {})
+                    }));
+                  }
+                }
+              } catch {}
+
+              this.resizeCalloutByTextboxHeight(textBox, activeObject, 8);
+            }
+          }
+        } catch {}
       } else if (activeObject.data?.type === 'callout-group') {
         // For callout groups, update the text object inside
         console.log('💬 Updating selected callout group');
         const textObj = activeObject.getObjects().find((obj: any) => obj.data?.type === 'text');
+        const textBox = activeObject.getObjects().find((obj: any) => obj.data?.type === 'callout-box');
         if (textObj) {
           const currentFill = textObj.fill;
           const isPlaceholder = textObj.data?.isPlaceholder;
@@ -138,16 +193,73 @@ export class ToolManager {
             newFill = currentFill;
           }
           
+          // Apply updates based on colorTarget: default to border for callouts
+          const applyToText = this.toolProperties.colorTarget === 'text' || this.toolProperties.colorTarget === 'both';
+          const applyToBorder = this.toolProperties.colorTarget !== 'text'; // 'border' or 'both'
+
+          // Update text styling (avoid changing fill if targeting border only)
           textObj.set({
-            fill: newFill,
+            ...(applyToText ? { fill: (this.toolProperties.color || newFill) } : {}),
             fontSize: this.toolProperties.fontSize || 12,
-            fontWeight: this.toolProperties.fontWeight || 400,
+            fontWeight: this.toolProperties.fontWeight || 300,
             opacity: this.toolProperties.opacity,
             textAlign: this.toolProperties.textAlign || 'left'
           });
+          // Ensure callout text never gets stroke from line thickness updates
+          textObj.set({ stroke: '', strokeWidth: 0 });
+
+          if (textBox) {
+            // Always apply stroke width to border (do not affect text)
+            textBox.set({ strokeWidth: this.toolProperties.strokeWidth });
+            // Apply border color only if color target includes border
+            if (applyToBorder) {
+              textBox.set({
+                stroke: this.toolProperties.color,
+                opacity: this.toolProperties.opacity
+              });
+            }
+
+            // Also update linked arrow(s)
+            try {
+              const groupId = activeObject.data?.id;
+              if (groupId && this.canvas) {
+                const all = this.canvas.getObjects();
+                const linkedArrow = all.find((o: any) => o.data?.type === 'callout-arrow' && o.data?.calloutGroupId === groupId);
+                const linkedHeads = all.filter((o: any) => o.data?.type === 'arrowhead' && o.data?.calloutGroupId === groupId);
+                if (linkedArrow) {
+                  linkedArrow.set({
+                    strokeWidth: this.toolProperties.strokeWidth,
+                    opacity: this.toolProperties.opacity,
+                    ...(applyToBorder ? { stroke: this.toolProperties.color } : {})
+                  });
+                }
+                if (linkedHeads && linkedHeads.length) {
+                  linkedHeads.forEach((h: any) => h.set({
+                    strokeWidth: this.toolProperties.strokeWidth,
+                    opacity: this.toolProperties.opacity,
+                    ...(applyToBorder ? { stroke: this.toolProperties.color } : {})
+                  }));
+                }
+              }
+            } catch {}
+          }
+
+          // Recompute text dimensions and resize the callout box to contain it
+          try {
+            // force dimension recompute on the textbox
+            textObj._forceClearCache && textObj._forceClearCache();
+            textObj.initDimensions && textObj.initDimensions();
+            if (textBox) {
+              this.resizeCalloutByTextboxHeight(textBox, textObj, 8);
+            }
+          } catch {}
         }
-             } else if (activeObject.data?.type !== 'cloud') {
-         // For other shapes (rectangles, circles, arrows), just update stroke properties
+             } else if (activeObject.data?.type === 'arrow-group') {
+        // For arrow groups, update the line and arrowheads
+        console.log('➡️ Updating arrow group properties');
+        this.updateArrowShape(activeObject);
+      } else if (activeObject.data?.type !== 'cloud') {
+         // For other shapes (rectangles, circles), just update stroke properties
          console.log('🎨 Updating stroke properties for', activeObject.data.type);
         activeObject.set({
           stroke: this.toolProperties.color,
@@ -203,9 +315,9 @@ export class ToolManager {
          
          // Replace the old cloud with the new one
          const index = this.canvas.getObjects().indexOf(cloudObj);
-         if (index !== -1) {
+         if (index !== -1 && this.canvas) {
            this.canvas.remove(cloudObj);
-           this.canvas.insertAt(newCloud, index);
+           this.canvas.insertAt(newCloud, index, false);
            this.canvas.setActiveObject(newCloud);
            console.log('☁️ Cloud regenerated with new scallop size');
          }
@@ -214,7 +326,8 @@ export class ToolManager {
          cloudObj.set({
            stroke: this.toolProperties.color,
            strokeWidth: this.toolProperties.cloudLineThickness || this.toolProperties.strokeWidth,
-           opacity: this.toolProperties.opacity
+           opacity: this.toolProperties.opacity,
+           fill: 'transparent' // Ensure fill stays transparent
          });
          
          // Update the stored data properties
@@ -222,7 +335,9 @@ export class ToolManager {
          cloudObj.data.cloudLineThickness = this.toolProperties.cloudLineThickness;
          
          // Re-select the cloud to maintain selection
-         this.canvas.setActiveObject(cloudObj);
+         if (this.canvas) {
+           this.canvas.setActiveObject(cloudObj);
+         }
          console.log('☁️ Cloud properties updated directly');
        }
        
@@ -232,6 +347,52 @@ export class ToolManager {
        console.error('☁️ Error updating cloud shape:', error);
      }
    }
+
+  private updateArrowShape(arrowGroup: any) {
+    try {
+      console.log('➡️ Updating arrow group properties');
+      
+      // Get the line and arrowhead objects from the group
+      const line = arrowGroup.getObjects().find((obj: any) => obj.type === 'line');
+      const arrowhead1 = arrowGroup.getObjects().find((obj: any) => obj.type === 'line' && obj.data?.type === 'arrowhead' && obj.data?.arrowheadNumber === 1);
+      const arrowhead2 = arrowGroup.getObjects().find((obj: any) => obj.type === 'line' && obj.data?.type === 'arrowhead' && obj.data?.arrowheadNumber === 2);
+      
+      if (line) {
+        // Update the main line
+        line.set({
+          stroke: this.toolProperties.color,
+          strokeWidth: this.toolProperties.strokeWidth,
+          opacity: this.toolProperties.opacity
+        });
+      }
+      
+      if (arrowhead1) {
+        // Update the first arrowhead
+        arrowhead1.set({
+          stroke: this.toolProperties.color,
+          strokeWidth: this.toolProperties.strokeWidth,
+          opacity: this.toolProperties.opacity
+        });
+      }
+      
+      if (arrowhead2) {
+        // Update the second arrowhead
+        arrowhead2.set({
+          stroke: this.toolProperties.color,
+          strokeWidth: this.toolProperties.strokeWidth,
+          opacity: this.toolProperties.opacity
+        });
+      }
+      
+             // Force a render to ensure changes are visible
+       if (this.canvas) {
+         this.canvas.renderAll();
+       }
+       console.log('➡️ Arrow group properties updated');
+    } catch (error) {
+      console.error('➡️ Error updating arrow shape:', error);
+    }
+  }
 
   private setupEventListeners() {
     if (!this.canvas) return;
@@ -499,10 +660,11 @@ export class ToolManager {
       top: pointer.y,
       fontSize: toolProperties.fontSize || 12,
       fill: '#999999', // Start with grey placeholder
-      fontWeight: toolProperties.fontWeight || 400,
+      fontWeight: toolProperties.fontWeight || 300,
       opacity: toolProperties.opacity || 1.0,
       fontFamily: 'Arial, sans-serif',
-      fontStyle: 'normal',
+      fontStyle: toolProperties.fontStyle || 'normal',
+      underline: !!toolProperties.underline,
       textAlign: toolProperties.textAlign || 'left', // Add text alignment
       selectable: true,
       editable: true,
@@ -536,11 +698,14 @@ export class ToolManager {
     textObj.on('editing:entered', () => {
       console.log('🖊️ Text editing started');
       isEditingMode = true;
-      if (textObj.data?.isPlaceholder) {
-        textObj.selectAll();
-        textObj.removeChars(0, textObj.text.length);
-        textObj.fill = '#000000';
+      if (textObj.data?.isPlaceholder || textObj.text === 'Type text here') {
+        textObj.text = '';
+        textObj.fill = '#000000'; // Set to black when editing starts
         textObj.data.isPlaceholder = false;
+        canvas.renderAll();
+      } else {
+        // Even if not placeholder, ensure text is black when editing
+        textObj.fill = '#000000';
         canvas.renderAll();
       }
     });
@@ -1502,89 +1667,94 @@ export class ToolManager {
          }
        });
        
-               // Create text box at the end of the arrow
-        const textBox = new (fabric as any).Rect({
-          left: pointer.x - 50, // Position text box so its center is at the arrow end
-          top: pointer.y - 20,
-          width: 100,
-          height: 40,
-          fill: 'rgba(255, 255, 255, 1.0)', // 100% opaque white to hide the arrow behind
-          stroke: toolProperties.color,
-          strokeWidth: toolProperties.strokeWidth,
-          opacity: toolProperties.opacity,
-          rx: 4,
-          ry: 4,
-          selectable: false,
-          evented: false,
-          data: {
-            isAnnotation: true,
-            type: 'callout-box'
-          }
-        });
-       
-                       // Create text object for the callout
-        const textObj = new (fabric as any).IText('Type text here', {
-          left: pointer.x - 45, // Position text to align with the centered text box
-          top: pointer.y - 15,
-          fontSize: toolProperties.fontSize || 12,
-          fill: '#999999', // Start with grey placeholder
-          fontWeight: toolProperties.fontWeight || 400,
-          opacity: toolProperties.opacity || 1.0,
-          fontFamily: 'Arial, sans-serif',
-          fontStyle: 'normal',
-          textAlign: toolProperties.textAlign || 'left', // Add text alignment
-          selectable: true,
-          editable: true,
-          evented: true,
-          moveCursor: 'text',
-          hoverCursor: 'text',
-          backgroundColor: 'transparent',
-          stroke: '',
-          strokeWidth: 0,
-          padding: 4,
-          hasControls: false,
-          hasBorders: false,
-          lockScalingX: true, // Prevent manual scaling
-          lockScalingY: true, // Prevent manual scaling
-          // Add text wrapping and boundary constraints
-          width: 200, // Set a default width for text wrapping
-          wordWrap: 'break-word', // Enable word wrapping
-          splitByGrapheme: false, // Don't split by individual characters
-          originX: 'left',
-          originY: 'top',
-          data: {
-            isAnnotation: true,
-            type: 'text',
-            id: (Date.now() + 1).toString(),
-            isPlaceholder: true
-          }
-        });
+                                               // Create text box at the end of the arrow - make it much larger initially
+         const textBox = new (fabric as any).Rect({
+           left: pointer.x - 100, // Much larger initial size
+           top: pointer.y - 35,
+           width: 140,
+           height: 70,
+           fill: 'rgba(255, 255, 255, 1.0)', // 100% opaque white to hide the arrow behind
+           stroke: toolProperties.color,
+           strokeWidth: toolProperties.strokeWidth,
+           strokeUniform: true,
+           opacity: toolProperties.opacity,
+           rx: 4,
+           ry: 4,
+           selectable: false,
+           evented: false,
+           objectCaching: false,
+           data: {
+             isAnnotation: true,
+             type: 'callout-box'
+           }
+         });
+      
+                                                             // Create text object for the callout - positioned to fit inside the box
+                   const textObj = new (fabric as any).Textbox('Type text here', {
+            left: pointer.x - 100 + 8, // Position text inside the box: textBox.left + padding
+            top: pointer.y - 35 + 8, // Position text inside the box: textBox.top + padding
+            fontSize: toolProperties.fontSize || 14,
+            fill: '#999999', // Start with grey placeholder
+            fontWeight: toolProperties.fontWeight || 300,
+            opacity: toolProperties.opacity || 1.0,
+            fontFamily: 'Arial, sans-serif',
+            fontStyle: toolProperties.fontStyle || 'normal',
+            textAlign: toolProperties.textAlign || 'left',
+            selectable: true,
+            editable: true,
+            evented: true,
+            moveCursor: 'text',
+            hoverCursor: 'text',
+            backgroundColor: 'transparent',
+            stroke: '',
+            strokeWidth: 0,
+            padding: 2, // Reduced padding for closer text to edge
+            hasControls: false,
+            hasBorders: false,
+            lockScalingX: true, // Prevent manual scaling
+            lockScalingY: true, // Prevent manual scaling
+            // Set a reasonable width constraint for the larger box
+            width: 124, // 140px box - 16px padding (8px on each side)
+            lineHeight: 1.2,
+            splitByGrapheme: false, // Wrap long continuous strings
+            originX: 'left',
+            originY: 'top',
+            // Force text to wrap at word boundaries
+            breakWords: false,
+            data: {
+              isAnnotation: true,
+              type: 'text',
+              id: (Date.now() + 1).toString(),
+              isPlaceholder: true
+            }
+          });
         
-        // Force initial text color to be visible
+        // Set initial placeholder color only if still a placeholder
         setTimeout(() => {
-          textObj.fill = '#999999';
-          canvas.renderAll();
+          if (textObj.data?.isPlaceholder) {
+            textObj.fill = '#999999';
+            canvas.renderAll();
+          }
         }, 100);
         
                  // Handle text editing for the callout text
-         textObj.on('editing:entered', () => {
-           console.log('🖊️ Callout text editing started');
-           
-           // Bring the text to the front when editing starts
-           canvas.bringToFront(textObj);
-           
-           if (textObj.data?.isPlaceholder) {
-             textObj.selectAll();
-             textObj.removeChars(0, textObj.text.length);
-             textObj.fill = '#000000'; // Set to black when editing starts
-             textObj.data.isPlaceholder = false;
-             canvas.renderAll();
-           } else {
-             // Even if not placeholder, ensure text is black when editing
-             textObj.fill = '#000000';
-             canvas.renderAll();
-           }
-         });
+        textObj.on('editing:entered', () => {
+          console.log('🖊️ Callout text editing started');
+          
+          // Bring the text to the front when editing starts
+          canvas.bringToFront(textObj);
+          
+          if (textObj.data?.isPlaceholder || textObj.text === 'Type text here') {
+            textObj.text = '';
+            textObj.fill = '#000000'; // Set to black when editing starts
+            textObj.data.isPlaceholder = false;
+            canvas.renderAll();
+          } else {
+            // Even if not placeholder, ensure text is black when editing
+            textObj.fill = '#000000';
+            canvas.renderAll();
+          }
+        });
         
         textObj.on('editing:exited', () => {
           console.log('🖊️ Callout text editing ended');
@@ -1598,19 +1768,24 @@ export class ToolManager {
             console.log('🔓 Callout text editing cooldown ended - new text boxes allowed');
           }, 300);
           
-          // Only restore placeholder if completely empty
-          if (textObj.text.trim() === '') {
-            textObj.text = 'Type text here';
-            textObj.fill = '#999999';
-            textObj.fontWeight = 'normal';
-            textObj.data.isPlaceholder = true;
-            canvas.renderAll();
-          } else {
-            // Ensure text remains visible after editing
-            textObj.fill = '#000000';
-            canvas.renderAll();
-          }
+          // Never restore placeholder - once cleared, it stays cleared
+          // Ensure text remains visible after editing and mark as not placeholder
+          textObj.fill = '#000000';
+          textObj.data.isPlaceholder = false;
+          canvas.renderAll();
+          
+          // Resize the text box to fit the text content
+          this.resizeCalloutByTextboxHeight(textBox, textObj, 8);
         });
+        
+                 // Add text change handler to resize box as user types
+         textObj.on('changed', () => {
+           if (textObj.data && textObj.data.isPlaceholder === false && typeof textObj.text === 'string' && textObj.text.includes('Type text here')) {
+             textObj.text = textObj.text.replace(/Type text here/g, '');
+           }
+           this.resizeCalloutByTextboxHeight(textBox, textObj, 8);
+           canvas.requestRenderAll();
+         });
         
                  // Add double-click handler for easier text editing (same as text tool)
          textObj.on('mousedblclick', () => {
@@ -1620,9 +1795,8 @@ export class ToolManager {
            canvas.bringToFront(textObj);
            
            textObj.enterEditing();
-           if (textObj.data?.isPlaceholder) {
-             textObj.selectAll();
-             textObj.removeChars(0, textObj.text.length);
+           if (textObj.data?.isPlaceholder || textObj.text === 'Type text here') {
+             textObj.text = '';
              textObj.fill = '#000000';
              textObj.data.isPlaceholder = false;
            } else {
@@ -1630,6 +1804,31 @@ export class ToolManager {
              textObj.fill = '#000000';
            }
            canvas.renderAll();
+         });
+
+                 // Single click to edit the callout text
+         textObj.on('mousedown', () => {
+           try {
+             // Route color changes to text when text is clicked
+             this.toolProperties.colorTarget = 'text';
+             if (this.onPropertiesUpdate) this.onPropertiesUpdate(this.toolProperties);
+             canvas.setActiveObject(textObj);
+             canvas.bringToFront(textObj);
+             textObj.enterEditing();
+             if (textObj.data?.isPlaceholder || textObj.text === 'Type text here') {
+               textObj.text = '';
+               textObj.fill = '#000000';
+               textObj.data.isPlaceholder = false;
+             } else {
+               const len = (textObj.text || '').length;
+               if (typeof textObj.setSelectionStart === 'function') {
+                 textObj.setSelectionStart(len);
+                 textObj.setSelectionEnd(len);
+               }
+             }
+             textObj.fill = '#000000';
+             canvas.requestRenderAll();
+           } catch {}
          });
        
        // Create a group containing ONLY the text box and text (not the arrow)
@@ -1639,7 +1838,7 @@ export class ToolManager {
          hasControls: true,
          hasBorders: true,
          lockScalingX: false,
-         lockScalingY: false,
+         lockScalingY: true,
          lockRotation: false,
          moveCursor: 'grab',
          hoverCursor: 'grab',
@@ -1651,13 +1850,82 @@ export class ToolManager {
          }
        });
        
-               // Add event handlers to update arrow when text box group is moved
-        calloutGroup.on('moving', (e: any) => {
-          this.updateCalloutArrow(finalArrow, arrowhead1, arrowhead2, calloutGroup, toolProperties);
-          // Force re-render to clear any artifacts
-          canvas.renderAll();
+       // Link arrow and arrowheads to this callout group so border changes can recolor them
+       try {
+         finalArrow.set({
+           data: {
+             ...finalArrow.data,
+             calloutGroupId: calloutGroup.data.id
+           }
+         });
+         arrowhead1.set({
+           data: {
+             ...arrowhead1.data,
+             calloutGroupId: calloutGroup.data.id
+           }
+         });
+         arrowhead2.set({
+           data: {
+             ...arrowhead2.data,
+             calloutGroupId: calloutGroup.data.id
+           }
+         });
+       } catch {}
+       
+       // Clicking the group's border should route color changes to the border
+       calloutGroup.on('mousedown', (evt: any) => {
+         try {
+           this.toolProperties.colorTarget = 'border';
+           if (this.onPropertiesUpdate) this.onPropertiesUpdate(this.toolProperties);
+         } catch {}
+       });
+       
+       // Add event handlers to update arrow when text box group is moved
+       calloutGroup.on('moving', (e: any) => {
+         this.updateCalloutArrow(finalArrow, arrowhead1, arrowhead2, calloutGroup, toolProperties);
+         // Force re-render to clear any artifacts
+         canvas.renderAll();
+       });
+ 
+        // Intercept group scaling: convert to rect width/height change (no text stretch)
+        calloutGroup.on('scaling', (e: any) => {
+          try {
+            if (!e || !calloutGroup) return;
+            const scaleX = calloutGroup.scaleX || 1;
+            const scaleY = calloutGroup.scaleY || 1;
+            let updated = false;
+            if (scaleX !== 1) {
+              const desiredWidth = (textBox.width || 0) * scaleX;
+              textBox.set({ width: Math.max(desiredWidth, 40) });
+              updated = true;
+            }
+            if (scaleY !== 1) {
+              const desiredHeight = (textBox.height || 0) * scaleY;
+              textBox.set({ height: Math.max(desiredHeight, 40) });
+              updated = true;
+            }
+            if (updated) {
+              // reset group scale and reflow text inside rect
+              calloutGroup.set({ scaleX: 1, scaleY: 1 });
+              // mark objects dirty so Fabric repaints during drag
+              textBox.dirty = true;
+              textObj.dirty = true;
+              this.resizeCalloutByTextboxHeight(textBox, textObj, 8);
+              const group = textObj.group;
+              if (group && typeof group.addWithUpdate === 'function') {
+                group.addWithUpdate();
+                group.setCoords();
+              }
+              // render on next frame for smoother visuals
+              if (typeof window !== 'undefined' && window.requestAnimationFrame) {
+                window.requestAnimationFrame(() => canvas.requestRenderAll());
+              } else {
+                canvas.requestRenderAll();
+              }
+            }
+          } catch {}
         });
-        
+
         calloutGroup.on('modified', (e: any) => {
           this.updateCalloutArrow(finalArrow, arrowhead1, arrowhead2, calloutGroup, toolProperties);
           // Force re-render to clear any artifacts
@@ -1826,16 +2094,57 @@ export class ToolManager {
      return properties;
    }
 
-  private updateControlPanelWithCloudProperties(cloudObj: any) {
-    if (!this.onPropertiesUpdate) return;
-    
-    const cloudProperties = this.extractCloudProperties(cloudObj);
-    console.log('🎛️ Updating control panel with cloud properties:', cloudProperties);
-    
-    // Update the tool properties with the cloud's properties
-    this.toolProperties = { ...this.toolProperties, ...cloudProperties };
-    
-    // Notify the UI to update the control panel
-    this.onPropertiesUpdate(this.toolProperties);
-  }
-}
+     private updateControlPanelWithCloudProperties(cloudObj: any) {
+     if (!this.onPropertiesUpdate) return;
+     
+     const cloudProperties = this.extractCloudProperties(cloudObj);
+     console.log('🎛️ Updating control panel with cloud properties:', cloudProperties);
+     
+     // Update the tool properties with the cloud's properties
+     this.toolProperties = { ...this.toolProperties, ...cloudProperties };
+     
+     // Notify the UI to update the control panel
+     this.onPropertiesUpdate(this.toolProperties);
+   }
+
+           private resizeCalloutByTextboxHeight(textBox: any, textObj: any, padding: number = 20) {
+      try {
+        // Compute desired inner width from the rect and reflow the textbox to that width
+        const desiredInnerWidth = Math.max(((textBox.width || 0) - padding * 2), 20);
+
+        if (typeof textObj.set === 'function') {
+          if (textObj.width !== desiredInnerWidth) {
+            textObj.set({ width: desiredInnerWidth });
+          }
+          // After width change, recompute dimensions for an accurate height
+          textObj._forceClearCache && textObj._forceClearCache();
+          textObj.initDimensions && textObj.initDimensions();
+        }
+
+        const newHeight = (textObj.height || 0) + padding * 2;
+
+        // Update rect size to fit content
+        textBox.set({
+          width: Math.max(desiredInnerWidth + padding * 2, 40),
+          height: Math.max(newHeight, 40)
+        });
+
+        // Keep text aligned with padding inside rect
+        textObj.set({
+          left: textBox.left + padding,
+          top: textBox.top + padding
+        });
+
+        // Update group bounds so nothing gets visually clipped
+        const group = textObj.group;
+        if (group && typeof group.addWithUpdate === 'function') {
+          group.addWithUpdate();
+          group.setCoords();
+        }
+
+        this.canvas?.requestRenderAll();
+      } catch (err) {
+        console.error('❌ Error resizeCalloutByTextboxHeight:', err);
+      }
+    }
+ }

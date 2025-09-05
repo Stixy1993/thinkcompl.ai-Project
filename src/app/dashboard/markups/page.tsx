@@ -17,15 +17,17 @@ export default function MarkupsPage() {
   const [lastActiveTool, setLastActiveTool] = useState<string>('select'); // Track the last non-select tool
   const [toolProperties, setToolProperties] = useState({
     color: '#000000',
-    strokeWidth: 1.0, // More visible default stroke width (0.01px to 5px range)
+    strokeWidth: 2.0, // Default stroke width
     opacity: 1.0,
-    fontSize: 12, // Smaller default font size
-    fontWeight: 400, // Default font weight (normal)
+    fontSize: 14, // Default text size
+    fontWeight: 300, // Default text weight (lighter)
     scallopSize: 8, // Default scallop size for cloud tool
     cloudLineThickness: 1, // Default line thickness for cloud tool
     textAlign: 'left' as 'left' | 'center' | 'right', // Default text alignment
     fontStyle: 'normal' as 'normal' | 'italic', // Default font style
-    textDecoration: 'none' as 'none' | 'underline' // Default text decoration
+    textDecoration: 'none' as 'none' | 'underline', // Default text decoration (UI convenience)
+    // New: whether color picker affects border, text or both
+    colorTarget: 'border' as 'border' | 'text' | 'both'
   });
   const [showFileBrowser, setShowFileBrowser] = useState(false);
   const [revisionClouds, setRevisionClouds] = useState<Array<{
@@ -243,17 +245,20 @@ Common Issues:
                 }}
                 onToolPropertiesUpdate={(properties) => {
                   console.log('🎛️ Parent: Updating tool properties from cloud selection:', properties);
+                  const alignAny = (properties as any).textAlign as 'left' | 'center' | 'right' | 'justify' | undefined;
+                  const coercedAlign: 'left' | 'center' | 'right' = alignAny === 'justify' ? 'left' : (alignAny || 'left');
                   setToolProperties({
                     color: properties.color,
-                    strokeWidth: properties.strokeWidth,
+                    strokeWidth: properties.strokeWidth ?? 2,
                     opacity: properties.opacity,
-                    fontSize: properties.fontSize || 12,
-                    fontWeight: properties.fontWeight || 400,
+                    fontSize: properties.fontSize || 14,
+                    fontWeight: properties.fontWeight || 300,
                     scallopSize: properties.scallopSize || 8,
                     cloudLineThickness: properties.cloudLineThickness || 1,
-                    textAlign: properties.textAlign || 'left',
+                    textAlign: coercedAlign,
                     fontStyle: properties.fontStyle || 'normal',
-                    textDecoration: properties.textDecoration || 'none'
+                    textDecoration: (properties as any).underline ? 'underline' : 'none',
+                    colorTarget: ((properties as any).colorTarget as any) || 'border'
                   });
                 }}
                 activeTool={activeTool as any}
@@ -395,71 +400,22 @@ Common Issues:
                         />
                       ))}
                     </div>
+                    {/* Color target toggle */}
+                    <div className="mt-3 flex justify-center">
+                      <div className="inline-flex rounded-md shadow-sm border border-gray-300 overflow-hidden text-[10px]">
+                        {(['border','text','both'] as const).map((target, idx) => (
+                          <button
+                            key={target}
+                            onClick={() => setToolProperties(prev => ({ ...prev, colorTarget: target }))}
+                            className={`px-4 py-1.5 ${toolProperties.colorTarget === target ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'} ${idx === 0 ? '' : 'border-l border-gray-300'}`}
+                            title={`Apply color to ${target}`}
+                          >
+                            {target === 'border' ? 'Border' : target === 'text' ? 'Text' : 'Both'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                  
-                  {/* Line Width Property - Only for shape tools and freehand */}
-                  {((activeTool === 'rectangle' || activeTool === 'circle' || activeTool === 'arrow' || activeTool === 'freehand') || 
-                    (activeTool === 'select' && (lastActiveTool === 'rectangle' || lastActiveTool === 'circle' || lastActiveTool === 'arrow' || lastActiveTool === 'freehand'))) && (
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                          Line Width
-                        </label>
-                        <span className="text-xs text-gray-500">{toolProperties.strokeWidth.toFixed(2)}px</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="0.01"
-                        max="5"
-                        step="0.01"
-                        value={toolProperties.strokeWidth}
-                        onChange={(e) => setToolProperties(prev => ({ ...prev, strokeWidth: parseFloat(e.target.value) }))}
-                        className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
-                      />
-                    </div>
-                  )}
-                  
-                  {/* Scallop Size Property - Only for cloud tool */}
-                  {(activeTool === 'cloud' || (activeTool === 'select' && lastActiveTool === 'cloud')) && (
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                          Scallop Size
-                        </label>
-                        <span className="text-xs text-gray-500">{toolProperties.scallopSize}px</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="4"
-                        max="20"
-                        step="1"
-                        value={toolProperties.scallopSize || 8}
-                        onChange={(e) => setToolProperties(prev => ({ ...prev, scallopSize: parseInt(e.target.value) }))}
-                        className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
-                      />
-                    </div>
-                  )}
-                  
-                  {/* Cloud Line Thickness Property - Only for cloud tool */}
-                  {(activeTool === 'cloud' || (activeTool === 'select' && lastActiveTool === 'cloud')) && (
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                          Line Thickness
-                        </label>
-                        <span className="text-xs text-gray-500">{toolProperties.cloudLineThickness}px</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="1"
-                        max="10"
-                        step="1"
-                        value={toolProperties.cloudLineThickness || 1}
-                        onChange={(e) => setToolProperties(prev => ({ ...prev, cloudLineThickness: parseInt(e.target.value) }))}
-                        className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
-                      />
-                    </div>
-                  )}
                   
                   {/* Text Properties - Only for text and callout tools */}
                   {(activeTool === 'text' || activeTool === 'callout' || (activeTool === 'select' && (lastActiveTool === 'text' || lastActiveTool === 'callout'))) && (
@@ -555,9 +511,30 @@ Common Issues:
                       />
                     </div>
                   )}
-                  
+
+                  {/* Line Width Property - Only for callout and arrow contexts; positioned between Text Size and Opacity */}
+                  {(activeTool === 'callout' || activeTool === 'arrow' || (activeTool === 'select' && (lastActiveTool === 'callout' || lastActiveTool === 'arrow'))) && (
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                          Line Thickness
+                        </label>
+                        <span className="text-xs text-gray-500">{toolProperties.strokeWidth.toFixed(2)}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0.5"
+                        max="4"
+                        step="0.5"
+                        value={toolProperties.strokeWidth}
+                        onChange={(e) => setToolProperties(prev => ({ ...prev, strokeWidth: parseFloat(e.target.value) }))}
+                        className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                      />
+                    </div>
+                  )}
+
                   {/* Opacity Property - Show for all tools except select */}
-                  {(activeTool !== 'select' || lastActiveTool !== 'select') && (
+                  {(activeTool !== 'select' || lastActiveTool !== 'select') && (activeTool !== 'callout' && lastActiveTool !== 'callout') && (
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">
@@ -643,135 +620,80 @@ Common Issues:
             
             {/* Tool Properties - Integrated below tools */}
             <div className="mt-6 pt-6 border-t border-gray-200 space-y-3">
-              {/* Color Property - Always show */}
-              <div className="relative group">
-                <div className="flex items-center justify-center">
-                  <div 
-                    className="tool-property w-8 h-8 rounded-lg border-2 border-gray-300 cursor-pointer hover:scale-105 transition-transform"
-                    style={{ backgroundColor: toolProperties.color }}
+              { (activeTool === 'text' || activeTool === 'callout' || (activeTool === 'select' && (lastActiveTool === 'text' || lastActiveTool === 'callout'))) ? (
+                <div className="flex flex-col items-center space-y-2">
+                  {/* Color swatch */}
+                  <button
                     onClick={() => setShowPropertiesPanel(true)}
-                  ></div>
-                </div>
-                {/* Custom Tooltip */}
-                <div className="absolute right-full mr-6 top-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-70 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-[9999]">
-                  Color
-                  <div className="absolute right-0 top-1/2 transform -translate-y-1/2 translate-x-1 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-l-gray-900"></div>
-                </div>
-              </div>
-              
-              {/* Line Width Property - Only for shape tools and freehand */}
-              {((activeTool === 'rectangle' || activeTool === 'circle' || activeTool === 'arrow' || activeTool === 'freehand') || 
-                (activeTool === 'select' && (lastActiveTool === 'rectangle' || lastActiveTool === 'circle' || lastActiveTool === 'arrow' || lastActiveTool === 'freehand'))) && (
-                <div className="relative group">
-                  <div className="flex items-center justify-center">
-                    <div 
-                      className="tool-property w-8 h-8 rounded-lg border-2 border-gray-300 bg-gray-100 flex items-center justify-center cursor-pointer hover:bg-gray-200 transition-colors"
-                      onClick={() => setShowPropertiesPanel(true)}
+                    className="tool-property w-8 h-8 rounded-lg border-2 border-gray-300 hover:scale-105 transition-transform"
+                    title="Color"
+                    style={{ backgroundColor: toolProperties.color }}
+                  />
+                  {/* Font size */}
+                  <button
+                    onClick={() => setShowPropertiesPanel(true)}
+                    className="tool-property w-8 h-8 rounded-lg border-2 border-gray-300 bg-gray-100 flex items-center justify-center hover:bg-gray-200"
+                    title="Text Size"
+                  >
+                    <span className="text-xs font-bold text-gray-700">{toolProperties.fontSize}</span>
+                  </button>
+                  {/* Style indicator (styled 'A') */}
+                  <button
+                    onClick={() => setShowPropertiesPanel(true)}
+                    className="tool-property w-8 h-8 rounded-lg border-2 border-gray-300 bg-gray-100 flex items-center justify-center hover:bg-gray-200"
+                    title="Text Style"
+                  >
+                    <span
+                      className="text-sm text-gray-700"
+                      style={{
+                        fontWeight: (toolProperties.fontWeight || 300) as any,
+                        fontStyle: toolProperties.fontStyle === 'italic' ? 'italic' : 'normal',
+                        textDecoration: toolProperties.textDecoration === 'underline' ? 'underline' : 'none'
+                      }}
                     >
-                      <div className="text-xs font-bold text-gray-600">{toolProperties.strokeWidth.toFixed(2)}</div>
-                    </div>
-                  </div>
-                  {/* Custom Tooltip */}
-                  <div className="absolute right-full mr-6 top-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-70 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-[9999]">
-                    Line: {toolProperties.strokeWidth.toFixed(2)}px
-                    <div className="absolute right-0 top-1/2 transform -translate-y-1/2 translate-x-1 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-l-gray-900"></div>
-                  </div>
+                      A
+                    </span>
+                  </button>
+                  {/* Alignment indicator */}
+                  <button
+                    onClick={() => setShowPropertiesPanel(true)}
+                    className="tool-property w-8 h-8 rounded-lg border-2 border-gray-300 bg-gray-100 flex items-center justify-center hover:bg-gray-200"
+                    title={`Align: ${toolProperties.textAlign}`}
+                  >
+                    {toolProperties.textAlign === 'center' ? (
+                      <svg className="w-4 h-4 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
+                    ) : toolProperties.textAlign === 'right' ? (
+                      <svg className="w-4 h-4 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 6h16M12 12h16M8 18h16" /></svg>
+                    ) : (
+                      <svg className="w-4 h-4 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h12M4 18h16" /></svg>
+                    )}
+                  </button>
                 </div>
-              )}
-              
-              {/* Scallop Size Property - Only for cloud tool */}
-              {(activeTool === 'cloud' || (activeTool === 'select' && lastActiveTool === 'cloud')) && (
-                <div className="relative group">
-                  <div className="flex items-center justify-center">
-                    <div 
-                      className="tool-property w-8 h-8 rounded-lg border-2 border-gray-300 bg-gray-100 flex items-center justify-center cursor-pointer hover:bg-gray-200 transition-colors"
-                      onClick={() => setShowPropertiesPanel(true)}
-                    >
-                      <div className="text-xs font-bold text-gray-600">{toolProperties.scallopSize}</div>
+              ) : (
+                <>
+                  {/* Color Property - Always show */}
+                  <div className="relative group">
+                    <div className="flex items-center justify-center">
+                      <div 
+                        className="tool-property w-8 h-8 rounded-lg border-2 border-gray-300 cursor-pointer hover:scale-105 transition-transform"
+                        style={{ backgroundColor: toolProperties.color }}
+                        onClick={() => setShowPropertiesPanel(true)}
+                      ></div>
                     </div>
+                    <div className="absolute right-full mr-6 top-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-70 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-[9999]">Color<div className="absolute right-0 top-1/2 transform -translate-y-1/2 translate-x-1 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-l-gray-900"></div></div>
                   </div>
-                  {/* Custom Tooltip */}
-                  <div className="absolute right-full mr-6 top-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-70 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-[9999]">
-                    Scallop: {toolProperties.scallopSize}px
-                    <div className="absolute right-0 top-1/2 transform -translate-y-1/2 translate-x-1 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-l-gray-900"></div>
-                  </div>
-                </div>
-              )}
-              
-              {/* Cloud Line Thickness Property - Only for cloud tool */}
-              {(activeTool === 'cloud' || (activeTool === 'select' && lastActiveTool === 'cloud')) && (
-                <div className="relative group">
-                  <div className="flex items-center justify-center">
-                    <div 
-                      className="tool-property w-8 h-8 rounded-lg border-2 border-gray-300 bg-gray-100 flex items-center justify-center cursor-pointer hover:bg-gray-200 transition-colors"
-                      onClick={() => setShowPropertiesPanel(true)}
-                    >
-                      <div className="text-xs font-bold text-gray-600">{toolProperties.cloudLineThickness}</div>
+                  {/* Line Width Property - Only for shape tools and freehand */}
+                  {((activeTool === 'rectangle' || activeTool === 'circle' || activeTool === 'arrow' || activeTool === 'freehand') || (activeTool === 'select' && (lastActiveTool === 'rectangle' || lastActiveTool === 'circle' || lastActiveTool === 'arrow' || lastActiveTool === 'freehand'))) && (
+                    <div className="relative group">
+                      <div className="flex items-center justify-center">
+                        <div className="tool-property w-8 h-8 rounded-lg border-2 border-gray-300 bg-gray-100 flex items-center justify-center cursor-pointer hover:bg-gray-200 transition-colors" onClick={() => setShowPropertiesPanel(true)}>
+                          <div className="text-xs font-bold text-gray-600">{toolProperties.strokeWidth.toFixed(2)}</div>
+                        </div>
+                      </div>
+                      <div className="absolute right-full mr-6 top-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-70 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-[9999]">Line: {toolProperties.strokeWidth.toFixed(2)}px<div className="absolute right-0 top-1/2 transform -translate-y-1/2 translate-x-1 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-l-gray-900"></div></div>
                     </div>
-                  </div>
-                  {/* Custom Tooltip */}
-                  <div className="absolute right-full mr-6 top-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-70 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-[9999]">
-                    Line: {toolProperties.cloudLineThickness}px
-                    <div className="absolute right-0 top-1/2 transform -translate-y-1/2 translate-x-1 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-l-gray-900"></div>
-                  </div>
-                </div>
-              )}
-              
-              {/* Text Size Property - Only for text tool */}
-              {(activeTool === 'text' || (activeTool === 'select' && lastActiveTool === 'text')) && (
-                <div className="relative group">
-                  <div className="flex items-center justify-center">
-                    <div 
-                      className="tool-property w-8 h-8 rounded-lg border-2 border-gray-300 bg-gray-100 flex items-center justify-center cursor-pointer hover:bg-gray-200 transition-colors"
-                      onClick={() => setShowPropertiesPanel(true)}
-                    >
-                      <div className="text-xs font-bold text-gray-600">{toolProperties.fontSize}</div>
-                    </div>
-                  </div>
-                  {/* Custom Tooltip */}
-                  <div className="absolute right-full mr-6 top-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-70 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-[9999]">
-                    Text Size: {toolProperties.fontSize}px
-                    <div className="absolute right-0 top-1/2 transform -translate-y-1/2 translate-x-1 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-l-gray-900"></div>
-                  </div>
-                </div>
-              )}
-              
-              {/* Text Weight Property - Only for text tool */}
-              {(activeTool === 'text' || (activeTool === 'select' && lastActiveTool === 'text')) && (
-                <div className="relative group">
-                  <div className="flex items-center justify-center">
-                    <div 
-                      className="tool-property w-8 h-8 rounded-lg border-2 border-gray-300 bg-gray-100 flex items-center justify-center cursor-pointer hover:bg-gray-200 transition-colors"
-                      onClick={() => setShowPropertiesPanel(true)}
-                    >
-                      <div className="text-xs font-bold text-gray-600" style={{ fontWeight: toolProperties.fontWeight }}>A</div>
-                    </div>
-                  </div>
-                  {/* Custom Tooltip */}
-                  <div className="absolute right-full mr-6 top-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-70 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-[9999]">
-                    Text Weight: {toolProperties.fontWeight}
-                    <div className="absolute right-0 top-1/2 transform -translate-y-1/2 translate-x-1 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-l-gray-900"></div>
-                  </div>
-                </div>
-              )}
-              
-              {/* Opacity Property - Show for all tools except select */}
-              {(activeTool !== 'select' || lastActiveTool !== 'select') && (
-                <div className="relative group">
-                  <div className="flex items-center justify-center">
-                    <div 
-                      className="tool-property w-8 h-8 rounded-lg border-2 border-gray-300 bg-gray-100 flex items-center justify-center cursor-pointer hover:bg-gray-200 transition-colors"
-                      onClick={() => setShowPropertiesPanel(true)}
-                    >
-                      <div className="text-xs font-bold text-gray-600">{Math.round(toolProperties.opacity * 100)}%</div>
-                    </div>
-                  </div>
-                  {/* Custom Tooltip */}
-                  <div className="absolute right-full mr-6 top-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-70 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-[9999]">
-                    Opacity: {Math.round(toolProperties.opacity * 100)}%
-                    <div className="absolute right-0 top-1/2 transform -translate-y-1/2 translate-x-1 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-l-gray-900"></div>
-                  </div>
-                </div>
+                  )}
+                </>
               )}
             </div>
           </nav>

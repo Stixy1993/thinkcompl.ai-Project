@@ -188,7 +188,7 @@ function PDFViewerComponent({
     color: '#000000',
     strokeWidth: 2,
     opacity: 1.0,
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: 400,
     fontStyle: 'normal',
     textAlign: 'left',
@@ -2191,6 +2191,48 @@ function PDFViewerComponent({
             });
             canvas.renderAll();
           }
+        } else if (activeObject.data?.type === 'cloud') {
+          // For cloud objects, only update stroke properties and keep fill transparent
+          console.log('☁️ Updating cloud properties');
+          activeObject.set({
+            stroke: toolProperties.color,
+            strokeWidth: toolProperties.cloudLineThickness || toolProperties.strokeWidth,
+            opacity: toolProperties.opacity,
+            fill: 'transparent' // Ensure fill stays transparent
+          });
+          canvas.renderAll();
+        } else if (activeObject.data?.type === 'arrow-group') {
+          // For arrow groups, update the line and arrowheads
+          console.log('➡️ Updating arrow group properties');
+          const line = activeObject.getObjects().find((obj: any) => obj.type === 'line');
+          const arrowhead1 = activeObject.getObjects().find((obj: any) => obj.type === 'line' && obj.data?.type === 'arrowhead' && obj.data?.arrowheadNumber === 1);
+          const arrowhead2 = activeObject.getObjects().find((obj: any) => obj.type === 'line' && obj.data?.type === 'arrowhead' && obj.data?.arrowheadNumber === 2);
+          
+          if (line) {
+            line.set({
+              stroke: toolProperties.color,
+              strokeWidth: toolProperties.strokeWidth,
+              opacity: toolProperties.opacity
+            });
+          }
+          
+          if (arrowhead1) {
+            arrowhead1.set({
+              stroke: toolProperties.color,
+              strokeWidth: toolProperties.strokeWidth,
+              opacity: toolProperties.opacity
+            });
+          }
+          
+          if (arrowhead2) {
+            arrowhead2.set({
+              stroke: toolProperties.color,
+              strokeWidth: toolProperties.strokeWidth,
+              opacity: toolProperties.opacity
+            });
+          }
+          
+          canvas.renderAll();
          } else {
           // For shapes, update color and other properties
           console.log('🔲 Setting shape color to:', toolProperties.color);
@@ -2219,9 +2261,12 @@ function PDFViewerComponent({
         opacity: toolProperties.opacity,
         fontSize: toolProperties.fontSize,
         fontWeight: toolProperties.fontWeight,
-        textAlign: toolProperties.textAlign,
+        textAlign: toolProperties.textAlign as any,
         scallopSize: toolProperties.scallopSize,
-        cloudLineThickness: toolProperties.cloudLineThickness
+        cloudLineThickness: toolProperties.cloudLineThickness,
+        fontStyle: toolProperties.fontStyle as any,
+        underline: toolProperties.textDecoration === 'underline',
+        colorTarget: (toolProperties as any).colorTarget || 'border'
       });
     }
   }, [activeTool, toolProperties]);

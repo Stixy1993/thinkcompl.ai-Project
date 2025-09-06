@@ -4,6 +4,8 @@ export type ToolType = 'select' | 'freehand' | 'text' | 'rectangle' | 'circle' |
 
 export interface ToolProperties {
   color: string;
+  textColor?: string;
+  borderColor?: string;
   strokeWidth: number;
   opacity: number;
   fontSize?: number;
@@ -16,6 +18,10 @@ export interface ToolProperties {
   underline?: boolean;
   // Where color should apply for composite annotations like callout
   colorTarget?: 'border' | 'text' | 'both';
+  // Text-specific: whether to render a border rectangle similar to callout (without arrow)
+  textBorder?: boolean;
+  // Text-specific: independent border thickness for text boxes (does not affect callout)
+  textBoxLineThickness?: number;
 }
 
 export interface ToolHandler {
@@ -92,85 +98,88 @@ export class ToolManager {
     if (activeObject && activeObject.data?.isAnnotation) {
       console.log('🎯 Updating selected object:', activeObject.data.type, activeObject.data.id);
       
+      // Map object type to controlling tool
+      const typeToTool: Record<string, ToolType> = {
+        'text': 'text',
+        'text-border': 'text',
+        'rectangle': 'rectangle',
+        'circle': 'circle',
+        'arrow-group': 'arrow',
+        'arrow': 'arrow',
+        'cloud': 'cloud',
+        'callout-group': 'callout'
+      };
+      const controllingTool = typeToTool[activeObject.data?.type || ''] as ToolType | undefined;
+
+      // If current active tool doesn't match the object's controlling tool, skip applying updates
+      if (controllingTool && this.activeTool !== controllingTool) {
+        console.log('⏭️ Skipping updates: active tool', this.activeTool, 'does not control', activeObject.data?.type);
+        return;
+      }
+      
              if ((activeObject.data?.type === 'cloud') && !activeObject.data?.isPreview) {
          // For cloud shapes, update properties
          console.log('☁️ Updating selected cloud shape (including all properties)');
          this.updateCloudShape(activeObject);
-       } else if (activeObject.data?.type === 'text') {
-        // For text objects, update color, fontSize, fontWeight, opacity, and textAlign
-        console.log('📝 Updating selected text object');
-        const currentFill = activeObject.fill;
-        const isPlaceholder = activeObject.data?.isPlaceholder;
-        
-        // Only change color if it's not a placeholder and the current color is visible
-        let newFill = currentFill;
-        if (!isPlaceholder && (currentFill === '#999999' || currentFill === 'rgba(153, 153, 153, 1)')) {
-          // If it's placeholder color, change to black
-          newFill = '#000000';
-        } else if (isPlaceholder) {
-          // Keep placeholder color
-          newFill = '#999999';
-        } else {
-          // Keep current color if it's already visible
-          newFill = currentFill;
-        }
-        
-        activeObject.set({
-          fill: (this.toolProperties.colorTarget === 'border') ? newFill : this.toolProperties.color || newFill,
-          fontSize: this.toolProperties.fontSize || 12,
-          fontWeight: this.toolProperties.fontWeight || 300,
-          fontStyle: this.toolProperties.fontStyle || 'normal',
-          underline: !!this.toolProperties.underline,
-          opacity: this.toolProperties.opacity,
-          textAlign: this.toolProperties.textAlign || 'left'
-        });
-        // Ensure text has no stroke regardless of stroke width slider
-        (activeObject as any).set({ stroke: '', strokeWidth: 0 });
+       } else if (activeObject.data?.type === 'text' || activeObject.data?.type === 'text-border') {
+        // Support both: when the active object is the text (inside group) or the group itself
+        const groupRef: any = (activeObject as any).type === 'group' ? (activeObject as any) : (activeObject as any).group;
+        const textRef: any = (activeObject as any).type === 'group'
+          ? (activeObject as any).getObjects().find((o: any) => o.type === 'textbox' || o.type === 'i-text')
+          : (activeObject as any);
+        const rectRef: any = groupRef ? groupRef.getObjects().find((o: any) => o.type === 'rect') : null;
 
-        // If this text lives inside a callout group, resize the box to fit and apply stroke width to border/arrow
-        try {
-          const parentGroup = (activeObject as any).group;
-          if (parentGroup && parentGroup.data?.type === 'callout-group') {
-            const textBox = parentGroup.getObjects().find((obj: any) => obj.data?.type === 'callout-box');
-            // recompute text dimensions before measuring
-            (activeObject as any)._forceClearCache && (activeObject as any)._forceClearCache();
-            (activeObject as any).initDimensions && (activeObject as any).initDimensions();
-            if (textBox) {
-              // Always apply stroke width to border (do not affect text)
-              textBox.set({ strokeWidth: this.toolProperties.strokeWidth });
-              // Apply border color only if color target includes border
-              if ((this.toolProperties.colorTarget !== 'text')) {
-                textBox.set({ stroke: this.toolProperties.color, opacity: this.toolProperties.opacity });
-              }
-
-              // Update linked arrow(s) for this callout
-              try {
-                const groupId = parentGroup.data?.id;
-                if (groupId && this.canvas) {
-                  const all = this.canvas.getObjects();
-                  const linkedArrow = all.find((o: any) => o.data?.type === 'callout-arrow' && o.data?.calloutGroupId === groupId);
-                  const linkedHeads = all.filter((o: any) => o.data?.type === 'arrowhead' && o.data?.calloutGroupId === groupId);
-                  if (linkedArrow) {
-                    linkedArrow.set({
-                      strokeWidth: this.toolProperties.strokeWidth,
-                      opacity: this.toolProperties.opacity,
-                      ...(this.toolProperties.colorTarget !== 'text' ? { stroke: this.toolProperties.color } : {})
-                    });
-                  }
-                  if (linkedHeads && linkedHeads.length) {
-                    linkedHeads.forEach((h: any) => h.set({
-                      strokeWidth: this.toolProperties.strokeWidth,
-                      opacity: this.toolProperties.opacity,
-                      ...(this.toolProperties.colorTarget !== 'text' ? { stroke: this.toolProperties.color } : {})
-                    }));
-                  }
-                }
-              } catch {}
-
-              this.resizeCalloutByTextboxHeight(textBox, activeObject, 8);
-            }
+        // Update text styling
+        if (textRef) {
+          const currentFill = textRef.fill;
+          const isPlaceholder = textRef.data?.isPlaceholder;
+          let newFill = currentFill;
+          if (!isPlaceholder && (currentFill === '#999999' || currentFill === 'rgba(153, 153, 153, 1)')) {
+            newFill = '#000000';
+          } else if (isPlaceholder) {
+            newFill = '#999999';
           }
-        } catch {}
+          const chosenTextColor = (this.toolProperties.color || newFill);
+          textRef.set({
+            // Always use single color for text
+            fill: chosenTextColor,
+            fontSize: this.toolProperties.fontSize || 12,
+            fontWeight: this.toolProperties.fontWeight || 300,
+            fontStyle: this.toolProperties.fontStyle || 'normal',
+            underline: !!this.toolProperties.underline,
+            opacity: this.toolProperties.opacity,
+            textAlign: this.toolProperties.textAlign || 'left',
+            stroke: '',
+            strokeWidth: 0
+          });
+        }
+
+        // Update border rect strictly based on toggle; keep visible when ON regardless of color target
+        if (groupRef && rectRef && textRef) {
+          const showBorder = !!this.toolProperties.textBorder;
+          const thickness = this.toolProperties.textBoxLineThickness ?? 1;
+          const padding = 8;
+          // Resize rect to wrap text box with padding
+          const desiredWidth = Math.max((textRef.width || 0) + padding * 2, 40);
+          const desiredHeight = Math.max((textRef.height || 0) + padding * 2, 24);
+
+          const strokeCandidate = (this.toolProperties.color || rectRef.stroke || '#000000');
+          const strokeForOn = strokeCandidate;
+
+          rectRef.set({
+            width: desiredWidth,
+            height: desiredHeight,
+            stroke: showBorder ? strokeForOn : (rectRef.stroke || strokeCandidate),
+            strokeWidth: showBorder ? thickness : 0
+          });
+
+          if (typeof groupRef.addWithUpdate === 'function') groupRef.addWithUpdate();
+          groupRef.dirty = true;
+        }
+
+        if (this.canvas) {
+          this.canvas.renderAll();
+        }
       } else if (activeObject.data?.type === 'callout-group') {
         // For callout groups, update the text object inside
         console.log('💬 Updating selected callout group');
@@ -434,29 +443,58 @@ export class ToolManager {
       // If we clicked on an existing annotation, handle selection
       console.log('🎯 Clicked on existing annotation, handling selection');
       
-             // Special handling for clouds - ensure we select the cloud directly
-       if (target.data?.type === 'cloud') {
-         // Direct click on cloud
-         this.canvas.setActiveObject(target);
-         
-         // Switch to cloud tool when clicking on a cloud
-         if (this.activeTool !== 'cloud') {
-           console.log('🔄 Switching to cloud tool for cloud selection');
-           this.setActiveTool('cloud');
-         }
-         
-         // Update control panel with the cloud's properties
-         this.updateControlPanelWithCloudProperties(target);
-       } else {
-         this.canvas.setActiveObject(target);
-       }
+      // Switch active tool based on selected object type
+      const typeToTool: Record<string, ToolType> = {
+        'text': 'text',
+        'rectangle': 'rectangle',
+        'circle': 'circle',
+        'arrow-group': 'arrow',
+        'arrow': 'arrow',
+        'cloud': 'cloud',
+        'callout-group': 'callout'
+      };
+      const controllingTool = typeToTool[target.data?.type || ''];
+
+      if (controllingTool && this.activeTool !== controllingTool) {
+        console.log('🔄 Switching active tool to match selection:', controllingTool);
+        this.setActiveTool(controllingTool);
+      }
+      
+      // Special handling for clouds - ensure we select the cloud directly
+      if (target.data?.type === 'cloud') {
+        // Direct click on cloud
+        this.canvas.setActiveObject(target);
+        
+        // Switch to cloud tool when clicking on a cloud
+        if (this.activeTool !== 'cloud') {
+          console.log('🔄 Switching to cloud tool for cloud selection');
+          this.setActiveTool('cloud');
+        }
+        
+        // Update control panel with the cloud's properties
+        this.updateControlPanelWithCloudProperties(target);
+      } else if (target.data?.type === 'text' || target.data?.type === 'text-border') {
+        // Special handling for text objects
+        this.canvas.setActiveObject(target);
+        
+        // Switch to text tool when clicking on a text object
+        if (this.activeTool !== 'text') {
+          console.log('🔄 Switching to text tool for text selection');
+          this.setActiveTool('text');
+        }
+        
+        // Update control panel with the text's properties
+        this.updateControlPanelWithTextProperties(target);
+      } else {
+        this.canvas.setActiveObject(target);
+      }
       
       this.canvas.renderAll();
       return;
     }
 
     // Only start drawing if we're in a drawing tool and clicked on empty space
-    if (this.activeTool === 'select' || this.activeTool === 'text') {
+    if (this.activeTool === 'select') {
       // Let Fabric.js handle normal selection for these tools
       return;
     }
@@ -525,6 +563,8 @@ export class ToolManager {
       },
       text: {
         onMouseDown: this.handleTextMouseDown.bind(this),
+        onMouseMove: this.handleTextMouseMove.bind(this),
+        onMouseUp: this.handleTextMouseUp.bind(this),
         cursor: 'text'
       },
       rectangle: {
@@ -639,8 +679,11 @@ export class ToolManager {
     // Check if we clicked on an existing text object
     const target = canvas.findTarget(e.e, false);
     if (target && target.data?.isAnnotation) {
-      if (target.type === 'i-text' || target.type === 'text') {
+      if (target.data?.type === 'text' || target.data?.type === 'text-border') {
+        // Text object selection is now handled by the general handleMouseDown method
+        // This method is only called when creating new text objects
         canvas.setActiveObject(target);
+        canvas.renderAll();
         return;
       }
       return;
@@ -653,37 +696,113 @@ export class ToolManager {
     }
 
     const pointer = canvas.getPointer(e.e);
-    
-    // Create text annotation
-    const textObj = new (fabric as any).IText('Type text here', {
-      left: pointer.x,
-      top: pointer.y,
-      fontSize: toolProperties.fontSize || 12,
-      fill: '#999999', // Start with grey placeholder
-      fontWeight: toolProperties.fontWeight || 300,
+    // Start a drag to define the text area; actual creation happens on mouseup
+    this.isDrawing = true;
+    this.startX = pointer.x;
+    this.startY = pointer.y;
+  }
+
+  private handleTextMouseMove(e: any, canvas: fabric.Canvas, toolProperties: ToolProperties) {
+    if (!this.isDrawing) return;
+    if (this.activeTool !== 'text') return;
+    const pointer = canvas.getPointer(e.e);
+    const left = Math.min(this.startX, pointer.x);
+    const top = Math.min(this.startY, pointer.y);
+    const width = Math.max(Math.abs(pointer.x - this.startX), 1);
+    const height = Math.max(Math.abs(pointer.y - this.startY), 1);
+
+    // Find existing preview rect
+    const preview = canvas.getObjects().find((obj: any) => obj.data?.isPreview && obj.data?.type === 'text-preview');
+    if (!preview) {
+      const previewRect = new (fabric as any).Rect({
+        left,
+        top,
+        width,
+        height,
+        fill: 'rgba(59,130,246,0.05)', // light blue tint
+        stroke: '#3B82F6',
+        strokeWidth: 1,
+        strokeDashArray: [4, 2],
+        selectable: false,
+        evented: false,
+        data: { isPreview: true, type: 'text-preview' }
+      });
+      canvas.add(previewRect);
+    } else {
+      preview.set({ left, top, width, height });
+    }
+    canvas.renderAll();
+  }
+
+  private handleTextMouseUp(e: any, canvas: fabric.Canvas, toolProperties: ToolProperties) {
+    if (!this.isDrawing) return;
+    this.isDrawing = false;
+    const end = canvas.getPointer(e.e);
+    const dx = Math.abs(end.x - this.startX);
+    const dy = Math.abs(end.y - this.startY);
+    const threshold = 5;
+    if (Math.max(dx, dy) < threshold) {
+      console.log('📝 Text drag too small; not creating');
+      // Remove preview if it exists
+      const prev = canvas.getObjects().find((obj: any) => obj.data?.isPreview && obj.data?.type === 'text-preview');
+      if (prev) canvas.remove(prev as any);
+      canvas.renderAll();
+      return;
+    }
+    const left = Math.min(this.startX, end.x);
+    const top = Math.min(this.startY, end.y);
+    const width = Math.max(dx, 120);
+    const height = Math.max(dy, 40);
+
+    // Remove preview if it exists
+    const preview = canvas.getObjects().find((obj: any) => obj.data?.isPreview && obj.data?.type === 'text-preview');
+    if (preview) canvas.remove(preview as any);
+
+    const padding = 8;
+    // Use last-used (panel) settings for new text box; simplifies isolation between boxes
+    const applyBorder = this.toolProperties.textBorder ?? true;
+    const rect = new (fabric as any).Rect({
+      left,
+      top,
+      width,
+      height,
+      fill: 'transparent',
+      stroke: this.toolProperties.color || '#000000',
+      // default or last-used border thickness
+      strokeWidth: applyBorder ? (this.toolProperties.textBoxLineThickness || 1.5) : 0.1,
+      rx: 4,
+      ry: 4,
+      selectable: false,
+      evented: false,
+      objectCaching: false
+    });
+
+    const textObj = new (fabric as any).Textbox('Type text here', {
+      left: left + padding,
+      top: top + padding,
+      // last-used or defaults
+      fontSize: this.toolProperties.fontSize || 14,
+      fill: this.toolProperties.color || '#000000',
+      fontWeight: this.toolProperties.fontWeight || 300,
       opacity: toolProperties.opacity || 1.0,
       fontFamily: 'Arial, sans-serif',
-      fontStyle: toolProperties.fontStyle || 'normal',
-      underline: !!toolProperties.underline,
-      textAlign: toolProperties.textAlign || 'left', // Add text alignment
+      fontStyle: this.toolProperties.fontStyle || 'normal',
+      // do not carry underline: always off by default
+      underline: false,
+      textAlign: (this.toolProperties.textAlign as any) || 'left',
       selectable: true,
       editable: true,
       evented: true,
-      moveCursor: 'grab',
-      hoverCursor: 'grab',
-      backgroundColor: 'rgba(255, 255, 255, 0.9)',
-      stroke: '',
-      strokeWidth: 0,
-      padding: 4,
       hasControls: false,
       hasBorders: true,
       borderColor: '#3B82F6',
       lockScalingX: true,
       lockScalingY: true,
-      // Add text wrapping and boundary constraints
-      width: 200, // Set a default width for text wrapping
-      wordWrap: 'break-word', // Enable word wrapping
-      splitByGrapheme: false, // Don't split by individual characters
+      width: Math.max(width - padding * 2, 40),
+      lineHeight: 1.2,
+      splitByGrapheme: false,
+      breakWords: true,
+      objectCaching: false,
       data: {
         isAnnotation: true,
         type: 'text',
@@ -692,50 +811,191 @@ export class ToolManager {
       }
     });
 
-    // Handle text editing
-    let isEditingMode = false;
-    
+    // Do not clip the text; rely on width wrapping so placeholder is fully visible
+
+    // Editing handlers (placeholder management)
     textObj.on('editing:entered', () => {
-      console.log('🖊️ Text editing started');
-      isEditingMode = true;
+      // Only change color when clearing a placeholder; otherwise keep the user's chosen color
       if (textObj.data?.isPlaceholder || textObj.text === 'Type text here') {
         textObj.text = '';
-        textObj.fill = '#000000'; // Set to black when editing starts
         textObj.data.isPlaceholder = false;
-        canvas.renderAll();
-      } else {
-        // Even if not placeholder, ensure text is black when editing
-        textObj.fill = '#000000';
-        canvas.renderAll();
+        textObj.fill = this.toolProperties.color || textObj.fill || '#000000';
       }
+      // Ensure tall box remains tall even when starting to type
+      try {
+        const grp = (textObj as any).group;
+        const rectObj = grp?.getObjects().find((o: any) => o.type === 'rect');
+        if (grp && rectObj) {
+          textObj.set({ width: Math.max((rectObj.width || 40) - padding * 2, 20) });
+          if (typeof grp.addWithUpdate === 'function') grp.addWithUpdate();
+          grp.setCoords();
+        }
+      } catch {}
+      try {
+        const grp = (textObj as any).group;
+        if (grp) {
+          grp.objectCaching = false;
+          grp.dirty = true;
+          if (typeof grp.addWithUpdate === 'function') grp.addWithUpdate();
+          if (typeof grp.setCoords === 'function') grp.setCoords();
+        }
+      } catch {}
+      canvas.renderAll();
     });
 
+    // While typing, strip any accidental placeholder fragments
+    textObj.on('changed', () => {
+      try {
+        if (textObj.data && textObj.data.isPlaceholder === false && typeof textObj.text === 'string' && textObj.text.includes('Type text here')) {
+          textObj.text = textObj.text.replace(/Type text here/g, '');
+        }
+        // Auto-grow the text box height to fit text
+        try {
+          const grp = (textObj as any).group;
+          const rectObj = grp?.getObjects().find((o: any) => o.type === 'rect');
+          if (grp && rectObj) {
+            // Keep text width bound to rect and expand rect height to fit text
+            textObj.set({ width: Math.max((rectObj.width || 40) - padding * 2, 20) });
+            this.resizeCalloutByTextboxHeight(rectObj, textObj, padding);
+            // Also extend width if a line (or long word) exceeds current width
+            try {
+              const lines = (textObj as any)._textLines ? (textObj as any)._textLines.length : (((textObj as any).textLines && (textObj as any).textLines.length) || 1);
+              let maxLineWidth = 0;
+              for (let i = 0; i < lines; i++) {
+                const w = (textObj as any).getLineWidth ? (textObj as any).getLineWidth(i) : (textObj.width || 0);
+                if (w > maxLineWidth) maxLineWidth = w;
+              }
+              const innerWidth = Math.max((rectObj.width || 40) - padding * 2, 20);
+              if (maxLineWidth > innerWidth) {
+                const newRectWidth = Math.max(maxLineWidth + padding * 2, rectObj.width || 0);
+                rectObj.set({ width: newRectWidth });
+                textObj.set({ width: Math.max(newRectWidth - padding * 2, 20) });
+              }
+            } catch {}
+            if (typeof grp.addWithUpdate === 'function') grp.addWithUpdate();
+            grp.setCoords();
+          }
+        } catch {}
+        canvas.requestRenderAll();
+      } catch {}
+    });
     textObj.on('editing:exited', () => {
-      console.log('🖊️ Text editing ended');
-      isEditingMode = false;
-      
-      // Set flag to prevent immediate new text box creation
       this.justFinishedEditing = true;
-      
       if (this.editingTimeout) clearTimeout(this.editingTimeout);
-      this.editingTimeout = setTimeout(() => {
-        this.justFinishedEditing = false;
-        console.log('🔓 Text editing cooldown ended - new text boxes allowed');
-      }, 300);
-      
-      // Only restore placeholder if completely empty
+      this.editingTimeout = setTimeout(() => (this.justFinishedEditing = false), 300);
       if (textObj.text.trim() === '') {
         textObj.text = 'Type text here';
         textObj.fill = '#999999';
-        textObj.fontWeight = 'normal';
         textObj.data.isPlaceholder = true;
-        canvas.renderAll();
       }
+      try {
+        const grp = (textObj as any).group;
+        if (grp) {
+          grp.dirty = true;
+          if (typeof grp.addWithUpdate === 'function') grp.addWithUpdate();
+          if (typeof grp.setCoords === 'function') grp.setCoords();
+        }
+      } catch {}
+      // Ensure final size fits content after editing ends
+      try {
+        const grp = (textObj as any).group;
+        const rectObj = grp?.getObjects().find((o: any) => o.type === 'rect');
+        if (grp && rectObj) {
+          textObj.set({ width: Math.max((rectObj.width || 40) - padding * 2, 20) });
+          this.resizeCalloutByTextboxHeight(rectObj, textObj, padding);
+          // Final width extension check
+          try {
+            const lines = (textObj as any)._textLines ? (textObj as any)._textLines.length : (((textObj as any).textLines && (textObj as any).textLines.length) || 1);
+            let maxLineWidth = 0;
+            for (let i = 0; i < lines; i++) {
+              const w = (textObj as any).getLineWidth ? (textObj as any).getLineWidth(i) : (textObj.width || 0);
+              if (w > maxLineWidth) maxLineWidth = w;
+            }
+            const innerWidth = Math.max((rectObj.width || 40) - padding * 2, 20);
+            if (maxLineWidth > innerWidth) {
+              const newRectWidth = Math.max(maxLineWidth + padding * 2, rectObj.width || 0);
+              rectObj.set({ width: newRectWidth });
+              textObj.set({ width: Math.max(newRectWidth - padding * 2, 20) });
+            }
+          } catch {}
+          if (typeof grp.addWithUpdate === 'function') grp.addWithUpdate();
+          grp.setCoords();
+        }
+      } catch {}
+      canvas.renderAll();
     });
 
-    canvas.add(textObj);
-    canvas.setActiveObject(textObj);
+    // One-click edit when clicking on the text
+    try {
+      textObj.on('mousedown', () => {
+        try {
+          this.canvas?.setActiveObject(textObj);
+          this.canvas?.bringToFront(textObj);
+          textObj.enterEditing();
+          if (textObj.data?.isPlaceholder || textObj.text === 'Type text here') {
+            textObj.text = '';
+            textObj.fill = '#000000';
+            textObj.data.isPlaceholder = false;
+          }
+          this.canvas?.requestRenderAll();
+        } catch {}
+      });
+    } catch {}
+
+    // Group rect + text so height stays fixed and border can render
+    const group = new (fabric as any).Group([rect, textObj], {
+      left,
+      top,
+      selectable: true,
+      subTargetCheck: true,
+      objectCaching: false,
+      data: { isAnnotation: true, type: applyBorder ? 'text-border' : 'text', id: Date.now().toString() }
+    });
+    // Convert group scaling into rect width/height changes without stretching text
+    try {
+      const paddingForText = padding;
+      group.on('scaling', () => {
+        try {
+          const rectObj = group.getObjects().find((o: any) => o.type === 'rect');
+          const txt = group.getObjects().find((o: any) => o.type === 'textbox' || o.type === 'i-text');
+          if (!rectObj || !txt) return;
+          const baseW = rectObj.width || 40;
+          const baseH = rectObj.height || 24;
+          const newW = Math.max(baseW * (group.scaleX || 1), 40);
+          const newH = Math.max(baseH * (group.scaleY || 1), 24);
+          rectObj.set({ width: newW, height: newH });
+          // keep text width within rect, do not scale font
+          txt.set({ width: Math.max(newW - paddingForText * 2, 20) });
+          // reset scale to avoid visual stretch
+          group.set({ scaleX: 1, scaleY: 1 });
+          // refresh bounds
+          if (typeof group.addWithUpdate === 'function') group.addWithUpdate();
+          group.setCoords();
+          this.canvas?.requestRenderAll();
+        } catch {}
+      });
+      group.on('modified', () => {
+        try {
+          const rectObj = group.getObjects().find((o: any) => o.type === 'rect');
+          const txt = group.getObjects().find((o: any) => o.type === 'textbox' || o.type === 'i-text');
+          if (!rectObj || !txt) return;
+          const newW = rectObj.width || 40;
+          txt.set({ width: Math.max(newW - paddingForText * 2, 20) });
+          if (typeof group.addWithUpdate === 'function') group.addWithUpdate();
+          group.setCoords();
+          this.canvas?.requestRenderAll();
+        } catch {}
+      });
+    } catch {}
+    canvas.add(group);
+    canvas.setActiveObject(group);
     canvas.renderAll();
+
+    // Reset underline so it never carries over from a previous box
+    try {
+      (this.toolProperties as any).underline = false;
+    } catch {}
+
   }
 
   // Arrow Tool Handlers
@@ -2094,6 +2354,75 @@ export class ToolManager {
      return properties;
    }
 
+  private extractTextProperties(textObj: any): ToolProperties {
+    console.log('🔍 Extracting text properties from:', textObj?.type, textObj?.data?.type);
+    console.log('🔍 Text object structure:', {
+      type: textObj?.type,
+      dataType: textObj?.data?.type,
+      hasGetObjects: typeof textObj?.getObjects === 'function',
+      objectKeys: textObj ? Object.keys(textObj) : []
+    });
+    
+    // Extract the current properties from a text object
+    const properties: ToolProperties = {
+      color: this.toolProperties.color,
+      strokeWidth: this.toolProperties.strokeWidth,
+      opacity: this.toolProperties.opacity,
+      fontSize: this.toolProperties.fontSize,
+      fontWeight: this.toolProperties.fontWeight,
+      fontStyle: this.toolProperties.fontStyle,
+      textAlign: this.toolProperties.textAlign,
+      textBorder: this.toolProperties.textBorder,
+      textBoxLineThickness: this.toolProperties.textBoxLineThickness
+    };
+
+    // Handle both individual text objects and text groups
+    let textRef: any = textObj;
+    let rectRef: any = null;
+
+    // If it's a group, find the text and rect objects inside
+    if (textObj.type === 'group' && textObj.data?.type === 'text-border') {
+      textRef = textObj.getObjects().find((o: any) => o.type === 'textbox' || o.type === 'i-text');
+      rectRef = textObj.getObjects().find((o: any) => o.type === 'rect');
+      console.log('🔍 Found text-border group, textRef:', !!textRef, 'rectRef:', !!rectRef);
+    } else if (textObj.type === 'group' && textObj.data?.type === 'text') {
+      textRef = textObj.getObjects().find((o: any) => o.type === 'textbox' || o.type === 'i-text');
+      rectRef = textObj.getObjects().find((o: any) => o.type === 'rect');
+      console.log('🔍 Found text group, textRef:', !!textRef, 'rectRef:', !!rectRef);
+    }
+
+    // Extract text properties
+    if (textRef) {
+      properties.color = textRef.fill || properties.color;
+      properties.fontSize = textRef.fontSize || properties.fontSize;
+      properties.fontWeight = textRef.fontWeight || properties.fontWeight;
+      properties.fontStyle = textRef.fontStyle || properties.fontStyle;
+      properties.textAlign = textRef.textAlign || properties.textAlign;
+      properties.opacity = textRef.opacity ?? properties.opacity;
+      console.log('🔍 Extracted text properties:', {
+        color: properties.color,
+        fontSize: properties.fontSize,
+        fontWeight: properties.fontWeight,
+        fontStyle: properties.fontStyle,
+        textAlign: properties.textAlign,
+        opacity: properties.opacity
+      });
+    }
+
+    // Extract border properties
+    if (rectRef) {
+      properties.textBorder = !!(rectRef.strokeWidth && rectRef.strokeWidth > 0);
+      properties.textBoxLineThickness = rectRef.strokeWidth || properties.textBoxLineThickness;
+      console.log('🔍 Extracted border properties:', {
+        textBorder: properties.textBorder,
+        textBoxLineThickness: properties.textBoxLineThickness
+      });
+    }
+
+    console.log('🔍 Final extracted properties:', properties);
+    return properties;
+  }
+
      private updateControlPanelWithCloudProperties(cloudObj: any) {
      if (!this.onPropertiesUpdate) return;
      
@@ -2106,6 +2435,25 @@ export class ToolManager {
      // Notify the UI to update the control panel
      this.onPropertiesUpdate(this.toolProperties);
    }
+
+  private updateControlPanelWithTextProperties(textObj: any) {
+    console.log('🎛️ updateControlPanelWithTextProperties called with:', textObj?.type, textObj?.data?.type);
+    if (!this.onPropertiesUpdate) {
+      console.log('❌ No onPropertiesUpdate callback available');
+      return;
+    }
+    
+    const textProperties = this.extractTextProperties(textObj);
+    console.log('🎛️ Updating control panel with text properties:', textProperties);
+    
+    // Update the tool properties with the text's properties
+    this.toolProperties = { ...this.toolProperties, ...textProperties };
+    console.log('🎛️ Updated toolProperties:', this.toolProperties);
+    
+    // Notify the UI to update the control panel
+    this.onPropertiesUpdate(this.toolProperties);
+    console.log('🎛️ Called onPropertiesUpdate');
+  }
 
            private resizeCalloutByTextboxHeight(textBox: any, textObj: any, padding: number = 20) {
       try {

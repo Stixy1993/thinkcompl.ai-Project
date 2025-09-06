@@ -123,6 +123,8 @@ interface PDFViewerProps {
   activeTool?: MarkupTool;
   toolProperties?: {
     color: string;
+    textColor?: string;
+    borderColor?: string;
     strokeWidth: number;
     opacity: number;
     fontSize?: number;
@@ -131,6 +133,9 @@ interface PDFViewerProps {
     textAlign?: 'left' | 'center' | 'right' | 'justify';
     scallopSize?: number;
     cloudLineThickness?: number;
+    textBorder?: boolean;
+    textBoxLineThickness?: number;
+    textDecoration?: 'none' | 'underline';
   };
   onPDFControlsChange?: (controls: {
     currentPage: number;
@@ -182,10 +187,16 @@ function PDFViewerComponent({
   const scaleRef = useRef(1.0);
   const [internalActiveTool, setInternalActiveTool] = useState<MarkupTool>('select');
   const activeTool = externalActiveTool || internalActiveTool;
+  const activeToolRef = useRef<MarkupTool>(activeTool);
+  useEffect(() => {
+    activeToolRef.current = activeTool;
+  }, [activeTool]);
   
   // Use external tool properties if provided, otherwise use defaults
   const toolProperties = externalToolProperties || {
     color: '#000000',
+    textColor: '#000000',
+    borderColor: '#000000',
     strokeWidth: 2,
     opacity: 1.0,
     fontSize: 14,
@@ -193,7 +204,9 @@ function PDFViewerComponent({
     fontStyle: 'normal',
     textAlign: 'left',
     scallopSize: 8,
-    cloudLineThickness: 1
+    cloudLineThickness: 1,
+    textBorder: false,
+    textBoxLineThickness: 1
   };
   const [isLoading, setIsLoading] = useState(false);
   const [isRendering, setIsRendering] = useState(false);
@@ -205,6 +218,8 @@ function PDFViewerComponent({
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [isClient, setIsClient] = useState(false);
+  // Guard to prevent applying panel-synced properties back onto selected objects
+  const syncingFromSelectionRef = useRef(false);
   
   // Undo/Redo state management
   const [undoStack, setUndoStack] = useState<string[]>([]);
@@ -586,7 +601,10 @@ function PDFViewerComponent({
                 fontSize: toolProperties.fontSize,
                 fontWeight: toolProperties.fontWeight,
                 scallopSize: toolProperties.scallopSize,
-                cloudLineThickness: toolProperties.cloudLineThickness
+                cloudLineThickness: toolProperties.cloudLineThickness,
+                textBorder: (externalToolProperties as any)?.textBorder ?? false,
+                // default thickness if provided
+                ...(externalToolProperties && (externalToolProperties as any).textBoxLineThickness !== undefined ? { textBoxLineThickness: (externalToolProperties as any).textBoxLineThickness as any } : {})
               }, (updatedProperties) => {
                 // Callback to update the UI when cloud properties are extracted
                 console.log('🎛️ ToolManager callback: Updating UI with cloud properties:', updatedProperties);
@@ -822,14 +840,69 @@ function PDFViewerComponent({
       }
     });
 
-    fabricCanvas.on('selection:created', (e: any) => {
+    const handleSelection = (e: any) => {
       if (e.selected && e.selected.length > 0) {
         const obj = e.selected[0];
         if (obj.data?.isAnnotation) {
           setSelectedAnnotation(obj.data.id);
+          // Inform parent so UI shows relevant properties for selected type
+          const map: any = {
+            'text': 'text',
+            'rectangle': 'rectangle',
+            'circle': 'circle',
+            'arrow': 'arrow',
+            'arrow-group': 'arrow',
+            'cloud': 'cloud',
+            'callout-group': 'callout',
+            'text-border': 'text'
+          };
+          const tool = map[obj.data?.type];
+          if (tool && onPDFControlsChange) {
+            onPDFControlsChange({
+              currentPage,
+              totalPages,
+              scale,
+              goToPreviousPage,
+              goToNextPage,
+              zoomIn,
+              zoomOut,
+              resetZoom,
+              undo,
+              redo,
+              activeTool: tool
+            });
+          }
+          // Snapshot selected text box properties to the UI so settings don't transfer between boxes
+          if (onToolPropertiesUpdate && (tool === 'text')) {
+            try {
+              const group = obj.type === 'group' ? obj : null;
+              const textObj = group ? group.getObjects().find((o: any) => o.type === 'textbox' || o.type === 'i-text') : (obj.type === 'textbox' || obj.type === 'i-text' ? obj : null);
+              const rectObj = group ? group.getObjects().find((o: any) => o.type === 'rect') : null;
+              if (textObj) {
+                const snapshot = {
+                  color: (textObj.fill || '#000000') as any,
+                  fontSize: (textObj.fontSize || 14) as any,
+                  fontWeight: (textObj.fontWeight || 300) as any,
+                  fontStyle: (textObj.fontStyle || 'normal') as any,
+                  textAlign: (textObj.textAlign || 'left') as any,
+                  opacity: (textObj.opacity ?? 1.0) as any,
+                  underline: !!(textObj.underline),
+                  // border snapshot
+                  ...(rectObj ? { textBorder: ((rectObj.strokeWidth || 0) > 0) as any, textBoxLineThickness: (rectObj.strokeWidth || 0) as any } : {})
+                };
+                // Prevent echoing the snapshot back onto the object
+                syncingFromSelectionRef.current = true;
+                onToolPropertiesUpdate(snapshot as any);
+                setTimeout(() => { syncingFromSelectionRef.current = false; }, 0);
+              }
+            } catch {}
+          }
         }
       }
-    });
+    };
+
+    fabricCanvas.on('selection:created', handleSelection);
+    fabricCanvas.on('selection:updated', handleSelection);
 
     fabricCanvas.on('selection:cleared', () => {
       setSelectedAnnotation(null);
@@ -840,17 +913,18 @@ function PDFViewerComponent({
     let startX = 0;
     let startY = 0;
 
-    fabricCanvas.on('mouse:down', (e) => {
+    fabricCanvas.on('mouse:down', (e: any) => {
       console.log('🎯 Mouse down event triggered, activeTool:', activeTool, 'readOnly:', readOnly);
-      if (readOnly || activeTool === 'select') return;
-
+      const currentTool = activeToolRef.current;
+      if (readOnly || currentTool === 'select') return;
+      
       const pointer = fabricCanvas.getPointer(e.e);
       console.log('🎯 Mouse position:', pointer.x, pointer.y);
       isDrawing = true;
       startX = pointer.x;
       startY = pointer.y;
 
-      switch (activeTool) {
+      switch (currentTool) {
         case 'rectangle':
           console.log('🎯 Starting rectangle drawing');
           startRectangleDrawing(pointer.x, pointer.y);
@@ -860,8 +934,8 @@ function PDFViewerComponent({
           startCircleDrawing(pointer.x, pointer.y);
           break;
         case 'text':
-          console.log('🎯 Starting text annotation');
-          addTextAnnotation(pointer.x, pointer.y);
+          // For text, defer creation to mouseup after drag
+          console.log('📝 Text tool active - waiting for drag to define box');
           break;
         case 'arrow':
           console.log('🎯 Starting arrow drawing');
@@ -918,22 +992,33 @@ function PDFViewerComponent({
       }
     });
 
-    fabricCanvas.on('mouse:move', (e) => {
-      if (!isDrawing || readOnly || activeTool === 'select') return;
+    fabricCanvas.on('mouse:move', (e: any) => {
+      if (!isDrawing || readOnly || activeToolRef.current === 'select') return;
 
-      console.log('🎯 Mouse move event triggered for tool:', activeTool);
+      console.log('🎯 Mouse move event triggered for tool:', activeToolRef.current);
       const pointer = fabricCanvas.getPointer(e.e);
       updateDrawingObject(startX, startY, pointer.x, pointer.y);
     });
 
-         fabricCanvas.on('mouse:up', () => {
-       // Only disable drawing mode for non-freehand tools
-       if (activeTool !== 'freehand') {
-         fabricCanvas.isDrawingMode = false;
-       }
-       isDrawing = false;
-       finalizeDrawingObject();
-     });
+    fabricCanvas.on('mouse:up', (e: any) => {
+      const currentTool = activeToolRef.current;
+      // Only disable drawing mode for non-freehand tools
+      if (currentTool !== 'freehand') {
+        fabricCanvas.isDrawingMode = false;
+      }
+      const end = fabricCanvas.getPointer(e.e);
+      const dx = Math.abs(end.x - startX);
+      const dy = Math.abs(end.y - startY);
+      const movedEnough = Math.max(dx, dy) > 5;
+      if (currentTool === 'text') {
+        // Defer text creation to ToolManager to avoid conflicting handlers
+        isDrawing = false;
+        finalizeDrawingObject();
+        return;
+      }
+      isDrawing = false;
+      finalizeDrawingObject();
+    });
   };
 
   const startRectangleDrawing = (x: number, y: number) => {
@@ -1031,7 +1116,7 @@ function PDFViewerComponent({
     const text = new (fabric as any).IText('Click to edit', {
       left: x,
       top: y,
-      fontSize: toolProperties.fontSize || 12,
+      fontSize: toolProperties.fontSize || 14,
       fontWeight: toolProperties.fontWeight || 400,
       fill: toolProperties.color,
       opacity: toolProperties.opacity || 1.0,
@@ -1044,9 +1129,37 @@ function PDFViewerComponent({
       }
     });
     
-    fabricCanvasRef.current?.add(text);
-    fabricCanvasRef.current?.setActiveObject(text);
-    text.enterEditing();
+    if (toolProperties.textBorder) {
+      // Create a rectangle behind the text with padding
+      const padding = 8;
+      text.initDimensions && text.initDimensions();
+      const rect = new (fabric as any).Rect({
+        left: x - padding,
+        top: y - padding,
+        width: (text.width || 100) + padding * 2,
+        height: (text.height || 20) + padding * 2,
+        fill: 'rgba(255,255,255,0)',
+        stroke: toolProperties.color,
+        strokeWidth: toolProperties.strokeWidth || 2,
+        rx: 4,
+        ry: 4,
+        selectable: false,
+        evented: false
+      });
+      const group = new (fabric as any).Group([rect, text], {
+        left: x - padding,
+        top: y - padding,
+        selectable: true,
+        data: { isAnnotation: true, type: 'text-border', id: uuidv4() }
+      });
+      fabricCanvasRef.current?.add(group);
+      fabricCanvasRef.current?.setActiveObject(group);
+      text.enterEditing();
+    } else {
+      fabricCanvasRef.current?.add(text);
+      fabricCanvasRef.current?.setActiveObject(text);
+      text.enterEditing();
+    }
   };
 
   const startCloudDrawing = (x: number, y: number) => {
@@ -1969,182 +2082,7 @@ function PDFViewerComponent({
       canvasElement.style.pointerEvents = 'auto';
     }
     
-      // Handle text tool mouse events
-  if (activeTool === 'text') {
-    console.log('🎯 Setting up text tool mouse handler');
-    
-    const handleTextMouseDown = (e: any) => {
-      if (!canvas || readOnly) return;
-      
-      // Check if we clicked on an existing object
-      const target = canvas.findTarget(e.e, false);
-      if (target && target.data?.isAnnotation) {
-        // If clicking on an existing text object, just select it
-        if (target.type === 'i-text' || target.type === 'text') {
-          canvas.setActiveObject(target);
-          return;
-        }
-        // For other annotation types, don't interfere
-        return;
-      }
-      
-      // Don't create new text box if we just finished editing one
-      if (justFinishedEditing) {
-        console.log('🚫 Preventing new text box creation - just finished editing');
-        return;
-      }
-      
-      const pointer = canvas.getPointer(e.e);
-      
-      // Create text annotation
-      // Save state before creating new text box
-      saveCanvasState();
-      
-      // Create text box with placeholder text that gets properly replaced
-      const textObj = new (fabric as any).IText('Type text here', {
-        left: pointer.x,
-        top: pointer.y,
-        fontSize: toolProperties.fontSize || 12,
-        fill: '#999999', // Start with grey placeholder
-        fontWeight: toolProperties.fontWeight || 400,
-        opacity: toolProperties.opacity || 1.0,
-        fontFamily: 'Arial, sans-serif',
-        fontStyle: 'normal',
-        textAlign: toolProperties.textAlign || 'left', // Add text alignment
-        selectable: true,
-        editable: true,
-        evented: true,
-        moveCursor: 'grab',
-        hoverCursor: 'grab',
-        backgroundColor: 'rgba(255, 255, 255, 0.9)',
-        stroke: '', // No stroke on text itself
-        strokeWidth: 0,
-        padding: 4,
-        hasControls: false, // Remove corner resize handles
-        hasBorders: true, // Keep border for selection
-        borderColor: '#3B82F6',
-        lockScalingX: true, // Prevent manual scaling
-        lockScalingY: true, // Prevent manual scaling
-        // Add text wrapping and boundary constraints
-        width: 200, // Set a default width for text wrapping
-        wordWrap: 'break-word', // Enable word wrapping
-        splitByGrapheme: false, // Don't split by individual characters
-        data: {
-          isAnnotation: true,
-          type: 'text',
-          id: Date.now().toString(),
-          isPlaceholder: true, // Track if this is placeholder text
-          // Store original coordinates for scaling - convert from current scale to original scale
-          originalX: pointer.x / scaleRef.current,
-          originalY: pointer.y / scaleRef.current,
-          originalWidth: 100 / scaleRef.current, // Approximate text width
-          originalHeight: 20 / scaleRef.current, // Approximate text height
-          originalFontSize: (toolProperties.fontSize || 12) / scaleRef.current,
-          originalFontWeight: toolProperties.fontWeight || 400
-        }
-      });
-      
-      // Handle text editing with robust placeholder management
-      let isEditingMode = false;
-      
-      textObj.on('editing:entered', function() {
-        console.log('🖊️ Text editing started');
-        isEditingMode = true;
-        // Clear placeholder text immediately when editing starts
-        if (textObj.data?.isPlaceholder) {
-          // Use selectAll() and then delete to properly clear
-          textObj.selectAll();
-          textObj.removeChars(0, textObj.text.length);
-          textObj.fill = '#000000';
-          textObj.data.isPlaceholder = false;
-          canvas.renderAll();
-        }
-      });
-      
-      // Handle text changes during editing - prevent any placeholder interference
-      textObj.on('text:changed', function() {
-        if (isEditingMode && textObj.data?.isPlaceholder === false) {
-          // Ensure coordinates are updated and no placeholder text sneaks in
-          textObj.setCoords();
-          // Make sure we're not in placeholder state while typing
-          if (textObj.text === 'Type text here') {
-            textObj.text = '';
-          }
-        }
-      });
-      
-      textObj.on('editing:exited', function() {
-        console.log('🖊️ Text editing ended');
-        isEditingMode = false;
-        
-        // Set global flag to prevent immediate new text box creation
-        setJustFinishedEditing(true);
-        
-        // Clear the flag after a short delay
-        if (editingTimeoutRef.current) clearTimeout(editingTimeoutRef.current);
-        editingTimeoutRef.current = setTimeout(() => {
-          setJustFinishedEditing(false);
-          console.log('🔓 Text editing cooldown ended - new text boxes allowed');
-        }, 300); // Increased to 300ms for better reliability
-        
-        // Only restore placeholder if completely empty
-        if (textObj.text.trim() === '') {
-          textObj.text = 'Type text here';
-          textObj.fill = '#999999';
-          textObj.fontWeight = 'normal';
-          textObj.data.isPlaceholder = true;
-          canvas.renderAll();
-        }
-      });
-      
-      // Add to canvas
-      canvas.add(textObj);
-      canvas.setActiveObject(textObj);
-      
-      // Don't start editing immediately - let user see the placeholder first
-      // textObj.enterEditing();
-      
-      canvas.renderAll();
-      
-      // Auto-switch to select tool after creating text box
-      console.log('🎯 Auto-switching to select tool after text box creation');
-      
-      // If using external tool control, notify parent to change tool
-      if (externalActiveTool) {
-        // For external tool control, we need to notify the parent component
-        console.log('🎯 Notifying parent to switch external tool to select');
-        onPDFControlsChange?.({
-          currentPage,
-          totalPages,
-          scale,
-          goToPreviousPage,
-          goToNextPage,
-          zoomIn,
-          zoomOut,
-          resetZoom,
-          undo,
-          redo,
-          activeTool: 'select'  // Request parent to change tool
-        });
-      } else {
-        // For internal tool control, change internal state
-        setInternalActiveTool('select');
-      }
-    };
-    
-    // Remove any existing text mouse handler before adding new one
-    canvas.off('mouse:down', handleTextMouseDown);
-    canvas.on('mouse:down', handleTextMouseDown);
-    
-    // Store the handler reference for cleanup
-    canvas._textMouseHandler = handleTextMouseDown;
-  } else {
-    // Remove text mouse handler when not using text tool
-    if (canvas._textMouseHandler) {
-      canvas.off('mouse:down', canvas._textMouseHandler);
-      delete canvas._textMouseHandler;
-    }
-  }
+    // Rely on the generic Fabric mouse handlers in setupFabricEventListeners for all tools
   }, [activeTool, toolProperties, readOnly]);
 
   // Handle tool properties changes to update selected text objects
@@ -2163,14 +2101,16 @@ function PDFViewerComponent({
         if (activeObject.type === 'i-text' || activeObject.type === 'text') {
            // For text objects, update color, fontSize, fontWeight, opacity, and textAlign
            console.log('✏️ Setting text properties:', {
-             color: toolProperties.color,
+             color: (toolProperties as any).textColor || toolProperties.color,
              fontSize: toolProperties.fontSize,
              fontWeight: toolProperties.fontWeight,
              opacity: toolProperties.opacity,
              textAlign: toolProperties.textAlign
            });
+           // Only change text fill when targeting text or both
+           const textFill = (toolProperties as any).textColor || toolProperties.color;
            activeObject.set({
-             fill: toolProperties.color,
+             ...( ((toolProperties as any).colorTarget !== 'border') ? { fill: textFill } : {} ),
              fontSize: toolProperties.fontSize || 12,
              fontWeight: toolProperties.fontWeight || 400,
              opacity: toolProperties.opacity || 1.0,
@@ -2182,8 +2122,9 @@ function PDFViewerComponent({
           console.log('💬 Updating callout group text properties');
           const textObj = activeObject.getObjects().find((obj: any) => obj.type === 'i-text' || obj.type === 'text');
           if (textObj) {
+            const calloutTextFill = (toolProperties as any).textColor || toolProperties.color;
             textObj.set({
-              fill: toolProperties.color,
+              ...( ((toolProperties as any).colorTarget !== 'border') ? { fill: calloutTextFill } : {} ),
               fontSize: toolProperties.fontSize || 12,
               fontWeight: toolProperties.fontWeight || 400,
               opacity: toolProperties.opacity || 1.0,
@@ -2250,11 +2191,16 @@ function PDFViewerComponent({
     }
   }, [toolProperties]);
 
-  // Tool Manager handles tool changes and properties
+  // Tool Manager: split effects to avoid overwriting per-box settings on selection
   useEffect(() => {
     if (toolManagerRef.current) {
       console.log('🛠️ Tool Manager: Updating active tool to:', activeTool);
       toolManagerRef.current.setActiveTool(activeTool as ToolType);
+    }
+  }, [activeTool]);
+
+  useEffect(() => {
+    if (toolManagerRef.current && !syncingFromSelectionRef.current) {
       toolManagerRef.current.setToolProperties({
         color: toolProperties.color,
         strokeWidth: toolProperties.strokeWidth,
@@ -2266,10 +2212,12 @@ function PDFViewerComponent({
         cloudLineThickness: toolProperties.cloudLineThickness,
         fontStyle: toolProperties.fontStyle as any,
         underline: toolProperties.textDecoration === 'underline',
-        colorTarget: (toolProperties as any).colorTarget || 'border'
+        colorTarget: (toolProperties as any).colorTarget || 'border',
+        textBorder: toolProperties.textBorder,
+        textBoxLineThickness: toolProperties.textBoxLineThickness
       });
     }
-  }, [activeTool, toolProperties]);
+  }, [toolProperties]);
 
   // Handle scale changes and re-render when scale updates
   // Note: This is now handled directly by zoom functions to avoid conflicts

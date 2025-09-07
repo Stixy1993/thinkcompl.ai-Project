@@ -42,11 +42,13 @@ export class ToolManager {
   private justFinishedEditing = false;
   private editingTimeout: NodeJS.Timeout | null = null;
   private lastCreatedCloudId: string | null = null; // Track the most recently created cloud
-  private onPropertiesUpdate?: (properties: ToolProperties) => void; // Callback to update UI
+  private onPropertiesUpdate?: (properties: ToolProperties) => void;
+  private onToolChange?: (tool: ToolType) => void; // Callback to update UI
 
-  constructor(toolProperties: ToolProperties, onPropertiesUpdate?: (properties: ToolProperties) => void) {
+  constructor(toolProperties: ToolProperties, onPropertiesUpdate?: (properties: ToolProperties) => void, onToolChange?: (tool: ToolType) => void) {
     this.toolProperties = toolProperties;
     this.onPropertiesUpdate = onPropertiesUpdate;
+    this.onToolChange = onToolChange;
   }
 
   setCanvas(canvas: fabric.Canvas) {
@@ -58,6 +60,16 @@ export class ToolManager {
     console.log('🛠️ Tool Manager: Switching to tool:', tool);
     this.activeTool = tool;
     this.updateCanvasMode();
+    
+    // Notify the UI about the tool change
+    if (this.onToolChange) {
+      console.log('🛠️ Notifying UI of tool change:', tool);
+      console.log('🛠️ onToolChange callback exists:', !!this.onToolChange);
+      this.onToolChange(tool);
+      console.log('🛠️ onToolChange callback called');
+    } else {
+      console.log('❌ No onToolChange callback available');
+    }
   }
 
   setToolProperties(properties: ToolProperties) {
@@ -112,7 +124,9 @@ export class ToolManager {
       const controllingTool = typeToTool[activeObject.data?.type || ''] as ToolType | undefined;
 
       // If current active tool doesn't match the object's controlling tool, skip applying updates
-      if (controllingTool && this.activeTool !== controllingTool) {
+      // Special-case: when the inner textbox of a callout is selected, allow callout updates
+      const isCalloutInnerText = (activeObject.data?.type === 'text') && ((activeObject as any).group?.data?.type === 'callout-group');
+      if (controllingTool && this.activeTool !== controllingTool && !isCalloutInnerText) {
         console.log('⏭️ Skipping updates: active tool', this.activeTool, 'does not control', activeObject.data?.type);
         return;
       }
@@ -121,7 +135,7 @@ export class ToolManager {
          // For cloud shapes, update properties
          console.log('☁️ Updating selected cloud shape (including all properties)');
          this.updateCloudShape(activeObject);
-       } else if (activeObject.data?.type === 'text' || activeObject.data?.type === 'text-border') {
+       } else if ((activeObject.data?.type === 'text' || activeObject.data?.type === 'text-border') && ((activeObject as any).group?.data?.type !== 'callout-group')) {
         // Support both: when the active object is the text (inside group) or the group itself
         const groupRef: any = (activeObject as any).type === 'group' ? (activeObject as any) : (activeObject as any).group;
         const textRef: any = (activeObject as any).type === 'group'
@@ -180,42 +194,57 @@ export class ToolManager {
         if (this.canvas) {
           this.canvas.renderAll();
         }
-      } else if (activeObject.data?.type === 'callout-group') {
+      } else if (activeObject.data?.type === 'callout-group' || (activeObject.data?.type === 'text' && (activeObject as any).group?.data?.type === 'callout-group')) {
         // For callout groups, update the text object inside
         console.log('💬 Updating selected callout group');
-        const textObj = activeObject.getObjects().find((obj: any) => obj.data?.type === 'text');
-        const textBox = activeObject.getObjects().find((obj: any) => obj.data?.type === 'callout-box');
+        // Support both selecting the group or the inner textbox while editing
+        const calloutGroup: any = activeObject.data?.type === 'callout-group' ? activeObject : (activeObject as any).group;
+        const textObj = calloutGroup.getObjects().find((obj: any) => obj.data?.type === 'text');
+        const textBox = calloutGroup.getObjects().find((obj: any) => obj.data?.type === 'callout-box');
         if (textObj) {
-          const currentFill = textObj.fill;
-          const isPlaceholder = textObj.data?.isPlaceholder;
+          const currentFill = textObj.fill || '#000000';
+          const isPlaceholder = textObj.data?.isPlaceholder || textObj.text === 'Type text here';
           
-          // Only change color if it's not a placeholder and the current color is visible
+          // Initialize newFill with current color
           let newFill = currentFill;
-          if (!isPlaceholder && (currentFill === '#999999' || currentFill === 'rgba(153, 153, 153, 1)')) {
-            // If it's placeholder color, change to black
-            newFill = '#000000';
-          } else if (isPlaceholder) {
-            // Keep placeholder color
-            newFill = '#999999';
-          } else {
-            // Keep current color if it's already visible
-            newFill = currentFill;
-          }
           
           // Apply updates based on colorTarget: default to border for callouts
           const applyToText = this.toolProperties.colorTarget === 'text' || this.toolProperties.colorTarget === 'both';
           const applyToBorder = this.toolProperties.colorTarget !== 'text'; // 'border' or 'both'
 
-          // Update text styling (avoid changing fill if targeting border only)
-          textObj.set({
-            ...(applyToText ? { fill: (this.toolProperties.color || newFill) } : {}),
-            fontSize: this.toolProperties.fontSize || 12,
-            fontWeight: this.toolProperties.fontWeight || 300,
-            opacity: this.toolProperties.opacity,
-            textAlign: this.toolProperties.textAlign || 'left'
-          });
-          // Ensure callout text never gets stroke from line thickness updates
-          textObj.set({ stroke: '', strokeWidth: 0 });
+          // Update text styling - apply same logic as text box tool
+          // Use the existing variables from above, but update the logic to match text box behavior
+          if (this.toolProperties.color && !isPlaceholder) {
+            newFill = this.toolProperties.color;
+          } else if (isPlaceholder) {
+            newFill = '#999999';
+          }
+          
+          // Update text ONLY if text-related properties actually changed
+          const shouldUpdateText = (
+            (this.toolProperties.fontSize ?? 12) !== (textObj.fontSize ?? 12) ||
+            (this.toolProperties.fontWeight ?? 300) !== (textObj.fontWeight ?? 300) ||
+            (this.toolProperties.fontStyle ?? 'normal') !== (textObj.fontStyle ?? 'normal') ||
+            (this.toolProperties.textAlign ?? 'left') !== (textObj.textAlign ?? 'left') ||
+            (this.toolProperties.underline ? 1 : 0) !== (textObj.underline ? 1 : 0) ||
+            this.toolProperties.colorTarget === 'text'
+          );
+
+          if (shouldUpdateText) {
+            // Ensure thickness never affects text
+            textObj.set({
+              fill: newFill,
+              fontSize: this.toolProperties.fontSize || 12,
+              fontWeight: this.toolProperties.fontWeight || 300,
+              fontStyle: this.toolProperties.fontStyle || 'normal',
+              underline: !!this.toolProperties.underline,
+              textAlign: this.toolProperties.textAlign || 'left',
+              opacity: 1.0,
+              stroke: '',
+              strokeWidth: 0
+            });
+            textObj.set({ stroke: '', strokeWidth: 0 });
+          }
 
           if (textBox) {
             // Always apply stroke width to border (do not affect text)
@@ -228,9 +257,16 @@ export class ToolManager {
               });
             }
 
+            // If user is editing the inner text, hard-guard text from thickness side-effects
+            try {
+              if ((textObj as any).isEditing) {
+                textObj.set({ stroke: '', strokeWidth: 0, opacity: 1.0 });
+              }
+            } catch {}
+
             // Also update linked arrow(s)
             try {
-              const groupId = activeObject.data?.id;
+              const groupId = calloutGroup.data?.id;
               if (groupId && this.canvas) {
                 const all = this.canvas.getObjects();
                 const linkedArrow = all.find((o: any) => o.data?.type === 'callout-arrow' && o.data?.calloutGroupId === groupId);
@@ -411,12 +447,14 @@ export class ToolManager {
     this.canvas.off('mouse:move');
     this.canvas.off('mouse:up');
     this.canvas.off('object:modified');
+    this.canvas.off('path:created');
 
     // Set up new listeners
     this.canvas.on('mouse:down', this.handleMouseDown.bind(this));
     this.canvas.on('mouse:move', this.handleMouseMove.bind(this));
     this.canvas.on('mouse:up', this.handleMouseUp.bind(this));
     this.canvas.on('object:modified', this.handleObjectModified.bind(this));
+    this.canvas.on('path:created', this.handlePathCreated.bind(this));
   }
 
   private handleObjectModified(e: any) {
@@ -427,6 +465,36 @@ export class ToolManager {
       const currentSize = Math.max(bounds.width, bounds.height);
       obj.data.originalSize = currentSize;
       console.log('☁️ Cloud resized, updated originalSize to:', currentSize);
+    }
+  }
+
+  private handlePathCreated(e: any) {
+    // When a freehand path is created, disable dragging for it
+    const path = e.path;
+    if (path && path.type === 'path') {
+      console.log('🎨 Freehand path created, disabling dragging');
+      // Preserve the existing stroke color and other properties
+      const existingStroke = path.stroke;
+      const existingStrokeWidth = path.strokeWidth;
+      const existingOpacity = path.opacity;
+      
+      path.set({
+        moveable: false,
+        selectable: false,
+        evented: true,
+        hasControls: false,
+        hasBorders: false,
+        // Preserve the drawing properties
+        stroke: existingStroke,
+        strokeWidth: existingStrokeWidth,
+        opacity: existingOpacity,
+        data: {
+          isAnnotation: true,
+          type: 'freehand',
+          id: Date.now().toString()
+        }
+      });
+      console.log('🎨 Preserved freehand properties:', { stroke: existingStroke, strokeWidth: existingStrokeWidth, opacity: existingOpacity });
     }
   }
 
@@ -442,6 +510,12 @@ export class ToolManager {
     if (target && target.data?.isAnnotation) {
       // If we clicked on an existing annotation, handle selection
       console.log('🎯 Clicked on existing annotation, handling selection');
+      console.log('🔍 FULL TARGET DEBUG:', {
+        'target.data.type': target.data?.type,
+        'target.type': target.type,
+        'target.data': target.data,
+        'target.id': target.data?.id
+      });
       
       // Switch active tool based on selected object type
       const typeToTool: Record<string, ToolType> = {
@@ -453,7 +527,13 @@ export class ToolManager {
         'cloud': 'cloud',
         'callout-group': 'callout'
       };
-      const controllingTool = typeToTool[target.data?.type || ''];
+      
+      // Check if it's a freehand drawing (Fabric.js Path object)
+      let controllingTool = typeToTool[target.data?.type || ''];
+      if (!controllingTool && target.type === 'path') {
+        controllingTool = 'freehand';
+        console.log('🎨 Detected freehand drawing (Path object)');
+      }
 
       if (controllingTool && this.activeTool !== controllingTool) {
         console.log('🔄 Switching active tool to match selection:', controllingTool);
@@ -485,6 +565,68 @@ export class ToolManager {
         
         // Update control panel with the text's properties
         this.updateControlPanelWithTextProperties(target);
+      } else if (target.data?.type === 'rectangle') {
+        // Special handling for rectangle objects
+        console.log('🔍 DEBUG: Handling rectangle click - target type:', target.data?.type);
+        this.canvas.setActiveObject(target);
+        
+        // Switch to rectangle tool when clicking on a rectangle
+        if (this.activeTool !== 'rectangle') {
+          console.log('🔄 Switching to rectangle tool for rectangle selection');
+          this.setActiveTool('rectangle');
+        }
+        
+        // Update control panel with the rectangle's properties
+        this.updateControlPanelWithRectangleProperties(target);
+      } else if (target.data?.type === 'circle') {
+        // Special handling for circle objects
+        this.canvas.setActiveObject(target);
+        
+        // Switch to circle tool when clicking on a circle
+        if (this.activeTool !== 'circle') {
+          console.log('🔄 Switching to circle tool for circle selection');
+          this.setActiveTool('circle');
+        }
+        
+        // Update control panel with the circle's properties
+        this.updateControlPanelWithCircleProperties(target);
+      } else if (target.data?.type === 'arrow' || target.data?.type === 'arrow-group') {
+        // Special handling for arrow objects
+        console.log('🔍 DEBUG: Handling arrow click - target type:', target.data?.type);
+        this.canvas.setActiveObject(target);
+        
+        // Switch to arrow tool when clicking on an arrow
+        if (this.activeTool !== 'arrow') {
+          console.log('🔄 Switching to arrow tool for arrow selection');
+          this.setActiveTool('arrow');
+        }
+        
+        // Update control panel with the arrow's properties
+        this.updateControlPanelWithArrowProperties(target);
+      } else if (target.data?.type === 'callout-group') {
+        // Special handling for callout objects
+        this.canvas.setActiveObject(target);
+        
+        // Switch to callout tool when clicking on a callout
+        if (this.activeTool !== 'callout') {
+          console.log('🔄 Switching to callout tool for callout selection');
+          this.setActiveTool('callout');
+        }
+        
+        // Update control panel with the callout's properties
+        this.updateControlPanelWithCalloutProperties(target);
+      } else if (target.type === 'path') {
+        // Special handling for freehand drawings (Path objects)
+        this.canvas.setActiveObject(target);
+        
+        // Switch to freehand tool when clicking on a freehand drawing
+        if (this.activeTool !== 'freehand') {
+          console.log('🔄 Switching to freehand tool for freehand selection');
+          this.setActiveTool('freehand');
+        }
+        
+        // Update control panel with the freehand's properties
+        this.updateControlPanelWithFreehandProperties(target);
       } else {
         this.canvas.setActiveObject(target);
       }
@@ -615,12 +757,17 @@ export class ToolManager {
   private updateCanvasMode() {
     if (!this.canvas) return;
 
-    const handler = this.getToolHandler(this.activeTool);
-    if (handler?.requiresDrawingMode) {
+    // Enable drawing mode for freehand tool, but override cursor behavior
+    if (this.activeTool === 'freehand') {
       this.canvas.isDrawingMode = true;
       this.updateBrushProperties();
+      // Override the cursor to show hand cursor when hovering over objects
+      this.canvas.defaultCursor = 'default';
+      this.canvas.hoverCursor = 'move';
     } else {
       this.canvas.isDrawingMode = false;
+      this.canvas.defaultCursor = 'default';
+      this.canvas.hoverCursor = 'move';
     }
   }
 
@@ -652,13 +799,11 @@ export class ToolManager {
   // Freehand Tool Handlers
   private handleFreehandMouseDown(e: any, canvas: fabric.Canvas, toolProperties: ToolProperties) {
     console.log('🎨 Freehand mouse down');
-    canvas.isDrawingMode = true;
-    
-    // Ensure brush exists and set properties
+    // Drawing mode is already enabled in updateCanvasMode()
+    // Just ensure brush exists and properties are set
     if (!canvas.freeDrawingBrush) {
       canvas.freeDrawingBrush = new (fabric as any).PencilBrush(canvas);
     }
-    
     this.updateBrushProperties();
   }
 
@@ -668,8 +813,8 @@ export class ToolManager {
 
   private handleFreehandMouseUp(e: any, canvas: fabric.Canvas, toolProperties: ToolProperties) {
     console.log('🎨 Freehand mouse up');
-    // Keep drawing mode enabled for continuous drawing
-    canvas.isDrawingMode = true;
+    // Drawing mode stays enabled for continuous drawing
+    // Cursor behavior is managed in updateCanvasMode()
   }
 
   // Text Tool Handlers
@@ -723,8 +868,8 @@ export class ToolManager {
         stroke: '#3B82F6',
         strokeWidth: 1,
         strokeDashArray: [4, 2],
-        selectable: false,
-        evented: false,
+        selectable: true,
+        evented: true,
         data: { isPreview: true, type: 'text-preview' }
       });
       canvas.add(previewRect);
@@ -772,8 +917,8 @@ export class ToolManager {
       strokeWidth: applyBorder ? (this.toolProperties.textBoxLineThickness || 1.5) : 0.1,
       rx: 4,
       ry: 4,
-      selectable: false,
-      evented: false,
+      selectable: true,
+      evented: true,
       objectCaching: false
     });
 
@@ -793,7 +938,8 @@ export class ToolManager {
       selectable: true,
       editable: true,
       evented: true,
-      hasControls: false,
+      moveable: true,
+      hasControls: true,
       hasBorders: true,
       borderColor: '#3B82F6',
       lockScalingX: true,
@@ -903,19 +1049,30 @@ export class ToolManager {
         if (grp && rectObj) {
           textObj.set({ width: Math.max((rectObj.width || 40) - padding * 2, 20) });
           this.resizeCalloutByTextboxHeight(rectObj, textObj, padding);
-          // Final width extension check
+          // Final width extension check (measure natural max width)
           try {
+            const prevWidth = textObj.width;
+            textObj.set({ width: 10000 });
+            textObj._forceClearCache && textObj._forceClearCache();
+            textObj.initDimensions && textObj.initDimensions();
+
             const lines = (textObj as any)._textLines ? (textObj as any)._textLines.length : (((textObj as any).textLines && (textObj as any).textLines.length) || 1);
-            let maxLineWidth = 0;
+            let maxNaturalWidth = 0;
             for (let i = 0; i < lines; i++) {
               const w = (textObj as any).getLineWidth ? (textObj as any).getLineWidth(i) : (textObj.width || 0);
-              if (w > maxLineWidth) maxLineWidth = w;
+              if (w > maxNaturalWidth) maxNaturalWidth = w;
             }
+
+            textObj.set({ width: prevWidth });
+            textObj._forceClearCache && textObj._forceClearCache();
+            textObj.initDimensions && textObj.initDimensions();
+
             const innerWidth = Math.max((rectObj.width || 40) - padding * 2, 20);
-            if (maxLineWidth > innerWidth) {
-              const newRectWidth = Math.max(maxLineWidth + padding * 2, rectObj.width || 0);
+            if (maxNaturalWidth > innerWidth) {
+              const newRectWidth = Math.max(maxNaturalWidth + padding * 2, rectObj.width || 0);
               rectObj.set({ width: newRectWidth });
               textObj.set({ width: Math.max(newRectWidth - padding * 2, 20) });
+              this.resizeCalloutByTextboxHeight(rectObj, textObj, padding);
             }
           } catch {}
           if (typeof grp.addWithUpdate === 'function') grp.addWithUpdate();
@@ -1010,8 +1167,8 @@ export class ToolManager {
       stroke: toolProperties.color,
       strokeWidth: toolProperties.strokeWidth,
       opacity: toolProperties.opacity,
-      selectable: false,
-      evented: false,
+      selectable: true,
+      evented: true,
       data: {
         isAnnotation: true,
         type: 'arrow',
@@ -1054,6 +1211,7 @@ export class ToolManager {
         evented: true,
         hasControls: true,
         hasBorders: true,
+        moveable: true,
         lockScalingX: false,
         lockScalingY: false,
         lockRotation: false,
@@ -1077,6 +1235,7 @@ export class ToolManager {
         evented: true,
         hasControls: true,
         hasBorders: true,
+        moveable: true,
         lockScalingX: false,
         lockScalingY: false,
         lockRotation: false,
@@ -1124,10 +1283,11 @@ export class ToolManager {
       stroke: toolProperties.color,
       strokeWidth: toolProperties.strokeWidth,
       opacity: toolProperties.opacity,
-      selectable: false,
-      evented: false,
-      hasControls: false,
-      hasBorders: false,
+      selectable: true,
+      evented: true,
+      hasControls: true,
+      hasBorders: true,
+      moveable: true,
       data: {
         isAnnotation: true,
         type: 'arrowhead',
@@ -1162,10 +1322,11 @@ export class ToolManager {
       stroke: toolProperties.color,
       strokeWidth: toolProperties.strokeWidth,
       opacity: toolProperties.opacity,
-      selectable: false,
-      evented: false,
-      hasControls: false,
-      hasBorders: false,
+      selectable: true,
+      evented: true,
+      hasControls: true,
+      hasBorders: true,
+      moveable: true,
       data: {
         isAnnotation: true,
         type: 'arrowhead',
@@ -1200,10 +1361,11 @@ export class ToolManager {
       stroke: toolProperties.color,
       strokeWidth: toolProperties.strokeWidth,
       opacity: toolProperties.opacity,
-      selectable: false,
-      evented: false,
-      hasControls: false,
-      hasBorders: false,
+      selectable: true,
+      evented: true,
+      hasControls: true,
+      hasBorders: true,
+      moveable: true,
       data: {
         isAnnotation: true,
         type: 'arrowhead',
@@ -1238,8 +1400,9 @@ export class ToolManager {
       opacity: toolProperties.opacity,
       selectable: true,
       evented: true,
-      hasControls: false,
-      hasBorders: false,
+      hasControls: true,
+      hasBorders: true,
+      moveable: true,
       data: {
         isAnnotation: true,
         type: 'arrowhead',
@@ -1253,8 +1416,9 @@ export class ToolManager {
       opacity: toolProperties.opacity,
       selectable: true,
       evented: true,
-      hasControls: false,
-      hasBorders: false,
+      hasControls: true,
+      hasBorders: true,
+      moveable: true,
       data: {
         isAnnotation: true,
         type: 'arrowhead',
@@ -1283,8 +1447,8 @@ export class ToolManager {
       stroke: toolProperties.color,
       strokeWidth: toolProperties.strokeWidth,
       opacity: toolProperties.opacity,
-      selectable: false,
-      evented: false,
+      selectable: true,
+      evented: true,
       data: {
         isAnnotation: true,
         type: 'rectangle',
@@ -1333,6 +1497,7 @@ export class ToolManager {
         evented: true,
         hasControls: true,
         hasBorders: true,
+        moveable: true,
         lockScalingX: false,
         lockScalingY: false,
         lockRotation: false,
@@ -1361,15 +1526,15 @@ export class ToolManager {
     
     // Create a temporary circle object for preview
     const circle = new (fabric as any).Circle({
-      left: this.startX,
-      top: this.startY,
+      left: this.startX, // Will be adjusted in mouse move
+      top: this.startY,  // Will be adjusted in mouse move
       radius: 0,
       fill: 'transparent', // No fill - only stroke should be visible
       stroke: toolProperties.color,
       strokeWidth: toolProperties.strokeWidth,
       opacity: toolProperties.opacity,
-      selectable: false,
-      evented: false,
+      selectable: true,
+      evented: true,
       data: {
         isAnnotation: true,
         type: 'circle',
@@ -1394,7 +1559,13 @@ export class ToolManager {
         Math.pow(pointer.y - this.startY, 2)
       );
       
+      // Calculate the center position to allow drawing in any direction
+      const centerX = this.startX;
+      const centerY = this.startY;
+      
       previewCircle.set({
+        left: centerX - radius, // Position circle so it's centered on start point
+        top: centerY - radius,  // Position circle so it's centered on start point
         radius: radius
       });
       canvas.renderAll();
@@ -1415,6 +1586,7 @@ export class ToolManager {
         evented: true,
         hasControls: true,
         hasBorders: true,
+        moveable: true,
         lockScalingX: false,
         lockScalingY: false,
         lockRotation: false,
@@ -1492,8 +1664,8 @@ export class ToolManager {
       cloud.set({
         left: this.startX,
         top: this.startY,
-        selectable: false,
-        evented: false,
+        selectable: true,
+        evented: true,
         data: {
           isAnnotation: true,
           type: 'cloud',
@@ -1519,8 +1691,8 @@ export class ToolManager {
       newCloud.set({
         left: this.startX, // Position at start point (center origin)
         top: this.startY,
-        selectable: false,
-        evented: false,
+        selectable: true,
+        evented: true,
         data: {
           isAnnotation: true,
           type: 'cloud',
@@ -1617,13 +1789,14 @@ export class ToolManager {
       selectable: true,
       editable: true,
       evented: true,
+      moveable: true,
       moveCursor: 'grab',
       hoverCursor: 'grab',
       backgroundColor: 'rgba(255, 255, 255, 0.9)',
       stroke: '',
       strokeWidth: 0,
       padding: 4,
-      hasControls: false,
+      hasControls: true,
       hasBorders: true,
       borderColor: '#3B82F6',
       lockScalingX: true,
@@ -1718,8 +1891,8 @@ export class ToolManager {
       stroke: properties.color,
       strokeWidth: lineThickness, // Use the cloud-specific line thickness
       opacity: properties.opacity,
-      selectable: false,
-      evented: false,
+      selectable: true,
+      evented: true,
       originX: 'center',
       originY: 'center'
     });
@@ -1780,8 +1953,8 @@ export class ToolManager {
            stroke: toolProperties.color,
            strokeWidth: toolProperties.strokeWidth,
            opacity: toolProperties.opacity,
-           selectable: false,
-           evented: false,
+           selectable: true,
+           evented: true,
            data: {
              isAnnotation: true,
              type: 'callout',
@@ -1890,10 +2063,10 @@ export class ToolManager {
          stroke: toolProperties.color,
          strokeWidth: toolProperties.strokeWidth,
          opacity: toolProperties.opacity,
-         selectable: false,
-         evented: false,
-         hasControls: false,
-         hasBorders: false,
+         selectable: true,
+         evented: true,
+         hasControls: true,
+         hasBorders: true,
          data: {
            isAnnotation: true,
            type: 'callout-arrow',
@@ -1940,8 +2113,8 @@ export class ToolManager {
            opacity: toolProperties.opacity,
            rx: 4,
            ry: 4,
-           selectable: false,
-           evented: false,
+           selectable: true,
+           evented: true,
            objectCaching: false,
            data: {
              isAnnotation: true,
@@ -1956,7 +2129,7 @@ export class ToolManager {
             fontSize: toolProperties.fontSize || 14,
             fill: '#999999', // Start with grey placeholder
             fontWeight: toolProperties.fontWeight || 300,
-            opacity: toolProperties.opacity || 1.0,
+            opacity: 1.0, // Always use full opacity for text, never use border opacity
             fontFamily: 'Arial, sans-serif',
             fontStyle: toolProperties.fontStyle || 'normal',
             textAlign: toolProperties.textAlign || 'left',
@@ -1969,18 +2142,19 @@ export class ToolManager {
             stroke: '',
             strokeWidth: 0,
             padding: 2, // Reduced padding for closer text to edge
-            hasControls: false,
-            hasBorders: false,
+            hasControls: true,
+            hasBorders: true,
             lockScalingX: true, // Prevent manual scaling
             lockScalingY: true, // Prevent manual scaling
             // Set a reasonable width constraint for the larger box
             width: 124, // 140px box - 16px padding (8px on each side)
             lineHeight: 1.2,
-            splitByGrapheme: false, // Wrap long continuous strings
+            // Enable robust wrapping so very long words do not overflow
+            splitByGrapheme: true,
             originX: 'left',
             originY: 'top',
             // Force text to wrap at word boundaries
-            breakWords: false,
+            breakWords: true,
             data: {
               isAnnotation: true,
               type: 'text',
@@ -2000,20 +2174,63 @@ export class ToolManager {
                  // Handle text editing for the callout text
         textObj.on('editing:entered', () => {
           console.log('🖊️ Callout text editing started');
+          console.log('🖊️ Current text properties before update:', {
+            fontSize: textObj.fontSize,
+            fontWeight: textObj.fontWeight,
+            fontStyle: textObj.fontStyle,
+            opacity: textObj.opacity,
+            fill: textObj.fill
+          });
           
           // Bring the text to the front when editing starts
           canvas.bringToFront(textObj);
           
           if (textObj.data?.isPlaceholder || textObj.text === 'Type text here') {
             textObj.text = '';
-            textObj.fill = '#000000'; // Set to black when editing starts
             textObj.data.isPlaceholder = false;
-            canvas.renderAll();
-          } else {
-            // Even if not placeholder, ensure text is black when editing
-            textObj.fill = '#000000';
-            canvas.renderAll();
           }
+          
+          // Apply proper styling when editing starts - use same logic as text box tool
+          const currentFill = textObj.fill || '#000000';
+          const isPlaceholder = textObj.data?.isPlaceholder || textObj.text === 'Type text here';
+          let newFill = currentFill;
+          
+          if (this.toolProperties.color && !isPlaceholder) {
+            newFill = this.toolProperties.color;
+          } else if (isPlaceholder) {
+            newFill = '#999999';
+          }
+          
+          console.log('🖊️ Applying properties:', {
+            fontSize: this.toolProperties.fontSize || 14,
+            fontWeight: this.toolProperties.fontWeight || 300,
+            fontStyle: this.toolProperties.fontStyle || 'normal',
+            textAlign: this.toolProperties.textAlign || 'left',
+            opacity: this.toolProperties.opacity || 1.0,
+            fill: newFill
+          });
+          console.log('🖊️ toolProperties.opacity value:', this.toolProperties.opacity);
+          console.log('🖊️ toolProperties.strokeWidth value:', this.toolProperties.strokeWidth);
+          
+          textObj.set({
+            fill: newFill,
+            fontSize: this.toolProperties.fontSize || 14,
+            fontWeight: this.toolProperties.fontWeight || 300,
+            fontStyle: this.toolProperties.fontStyle || 'normal',
+            underline: !!this.toolProperties.underline,
+            textAlign: this.toolProperties.textAlign || 'left',
+            opacity: 1.0 // Always use full opacity for text, never use border opacity
+          });
+          
+          console.log('🖊️ Text properties after update:', {
+            fontSize: textObj.fontSize,
+            fontWeight: textObj.fontWeight,
+            fontStyle: textObj.fontStyle,
+            opacity: textObj.opacity,
+            fill: textObj.fill
+          });
+          
+          canvas.renderAll();
         });
         
         textObj.on('editing:exited', () => {
@@ -2030,7 +2247,26 @@ export class ToolManager {
           
           // Never restore placeholder - once cleared, it stays cleared
           // Ensure text remains visible after editing and mark as not placeholder
-          textObj.fill = '#000000';
+          // Apply proper styling when editing ends - use same logic as text box tool
+          const currentFill = textObj.fill || '#000000';
+          const isPlaceholder = textObj.data?.isPlaceholder || textObj.text === 'Type text here';
+          let newFill = currentFill;
+          
+          if (this.toolProperties.color && !isPlaceholder) {
+            newFill = this.toolProperties.color;
+          } else if (isPlaceholder) {
+            newFill = '#999999';
+          }
+          
+          textObj.set({
+            fill: newFill,
+            fontSize: this.toolProperties.fontSize || 14,
+            fontWeight: this.toolProperties.fontWeight || 300,
+            fontStyle: this.toolProperties.fontStyle || 'normal',
+            underline: !!this.toolProperties.underline,
+            textAlign: this.toolProperties.textAlign || 'left',
+            opacity: 1.0 // Always use full opacity for text, never use border opacity
+          });
           textObj.data.isPlaceholder = false;
           canvas.renderAll();
           
@@ -2043,7 +2279,39 @@ export class ToolManager {
            if (textObj.data && textObj.data.isPlaceholder === false && typeof textObj.text === 'string' && textObj.text.includes('Type text here')) {
              textObj.text = textObj.text.replace(/Type text here/g, '');
            }
+           // First, auto-grow height to fit current width
            this.resizeCalloutByTextboxHeight(textBox, textObj, 8);
+
+           // Then, ensure long words extend the box to the right
+           try {
+             const padding = 8;
+             const prevWidth = textObj.width;
+             // Measure natural line widths with very large width
+             textObj.set({ width: 10000 });
+             textObj._forceClearCache && textObj._forceClearCache();
+             textObj.initDimensions && textObj.initDimensions();
+
+             const lines = (textObj as any)._textLines ? (textObj as any)._textLines.length : (((textObj as any).textLines && (textObj as any).textLines.length) || 1);
+             let maxNaturalWidth = 0;
+             for (let i = 0; i < lines; i++) {
+               const w = (textObj as any).getLineWidth ? (textObj as any).getLineWidth(i) : (textObj.width || 0);
+               if (w > maxNaturalWidth) maxNaturalWidth = w;
+             }
+
+             // Restore previous width and re-evaluate
+             textObj.set({ width: prevWidth });
+             textObj._forceClearCache && textObj._forceClearCache();
+             textObj.initDimensions && textObj.initDimensions();
+
+             const innerWidth = Math.max((textBox.width || 40) - padding * 2, 20);
+             if (maxNaturalWidth > innerWidth) {
+               const newRectWidth = Math.max(maxNaturalWidth + padding * 2, textBox.width || 0);
+               textBox.set({ width: newRectWidth });
+               textObj.set({ width: Math.max(newRectWidth - padding * 2, 20) });
+               this.resizeCalloutByTextboxHeight(textBox, textObj, padding);
+             }
+           } catch {}
+
            canvas.requestRenderAll();
          });
         
@@ -2372,6 +2640,7 @@ export class ToolManager {
       fontWeight: this.toolProperties.fontWeight,
       fontStyle: this.toolProperties.fontStyle,
       textAlign: this.toolProperties.textAlign,
+      underline: this.toolProperties.underline,
       textBorder: this.toolProperties.textBorder,
       textBoxLineThickness: this.toolProperties.textBoxLineThickness
     };
@@ -2399,13 +2668,15 @@ export class ToolManager {
       properties.fontStyle = textRef.fontStyle || properties.fontStyle;
       properties.textAlign = textRef.textAlign || properties.textAlign;
       properties.opacity = textRef.opacity ?? properties.opacity;
+      properties.underline = !!textRef.underline;
       console.log('🔍 Extracted text properties:', {
         color: properties.color,
         fontSize: properties.fontSize,
         fontWeight: properties.fontWeight,
         fontStyle: properties.fontStyle,
         textAlign: properties.textAlign,
-        opacity: properties.opacity
+        opacity: properties.opacity,
+        underline: properties.underline
       });
     }
 
@@ -2429,8 +2700,25 @@ export class ToolManager {
      const cloudProperties = this.extractCloudProperties(cloudObj);
      console.log('🎛️ Updating control panel with cloud properties:', cloudProperties);
      
-     // Update the tool properties with the cloud's properties
-     this.toolProperties = { ...this.toolProperties, ...cloudProperties };
+     // Create a clean properties object with only cloud-relevant properties
+     const cleanProperties: ToolProperties = {
+       color: cloudProperties.color,
+       strokeWidth: cloudProperties.strokeWidth,
+       opacity: cloudProperties.opacity,
+       // Set all other properties to their defaults
+       fontSize: 14,
+       fontWeight: 300,
+       textBoxLineThickness: 1.5,
+       cloudLineThickness: 2,
+       rectangleLineThickness: 2,
+       circleLineThickness: 2,
+       arrowLineThickness: 2,
+       freehandLineThickness: 2,
+       colorTarget: 'border'
+     };
+     
+     this.toolProperties = cleanProperties;
+     console.log('🎛️ Updated toolProperties (clean):', this.toolProperties);
      
      // Notify the UI to update the control panel
      this.onPropertiesUpdate(this.toolProperties);
@@ -2446,9 +2734,344 @@ export class ToolManager {
     const textProperties = this.extractTextProperties(textObj);
     console.log('🎛️ Updating control panel with text properties:', textProperties);
     
-    // Update the tool properties with the text's properties
-    this.toolProperties = { ...this.toolProperties, ...textProperties };
-    console.log('🎛️ Updated toolProperties:', this.toolProperties);
+    // Create a clean properties object with only text-relevant properties
+    const cleanProperties: ToolProperties = {
+      color: textProperties.color,
+      // Text boxes should not inherit callout stroke width; keep strokeWidth for text-only use
+      strokeWidth: textProperties.strokeWidth,
+      opacity: textProperties.opacity,
+      fontSize: textProperties.fontSize,
+      fontWeight: textProperties.fontWeight,
+      fontStyle: textProperties.fontStyle,
+      textAlign: textProperties.textAlign,
+      underline: textProperties.underline,
+      textBoxLineThickness: textProperties.textBoxLineThickness,
+      // Reset other tool-specific line thicknesses to defaults to avoid cross-tool bleed
+      cloudLineThickness: 2,
+      rectangleLineThickness: 2,
+      circleLineThickness: 2,
+      arrowLineThickness: 2,
+      freehandLineThickness: 2,
+      // Selecting a text box targets text color/styling only
+      colorTarget: 'text'
+    };
+    
+    this.toolProperties = cleanProperties;
+    console.log('🎛️ Updated toolProperties (clean):', this.toolProperties);
+    
+    // Notify the UI to update the control panel
+    this.onPropertiesUpdate(this.toolProperties);
+    console.log('🎛️ Called onPropertiesUpdate');
+  }
+
+  private extractRectangleProperties(rectangleObj: any): ToolProperties {
+    console.log('🔍 Extracting rectangle properties from:', rectangleObj?.type, rectangleObj?.data?.type);
+    
+    // Extract the current properties from a rectangle object
+    const properties: ToolProperties = {
+      color: this.toolProperties.color,
+      strokeWidth: this.toolProperties.strokeWidth,
+      opacity: this.toolProperties.opacity
+    };
+
+    // For rectangle objects, extract stroke properties
+    if (rectangleObj.data?.type === 'rectangle') {
+      properties.color = rectangleObj.stroke || properties.color;
+      properties.strokeWidth = rectangleObj.strokeWidth || properties.strokeWidth;
+      properties.opacity = rectangleObj.opacity ?? properties.opacity;
+      
+      console.log('🔍 Extracted rectangle properties:', {
+        color: properties.color,
+        strokeWidth: properties.strokeWidth,
+        opacity: properties.opacity
+      });
+    }
+
+    console.log('🔍 Final extracted rectangle properties:', properties);
+    return properties;
+  }
+
+  private extractCircleProperties(circleObj: any): ToolProperties {
+    console.log('🔍 Extracting circle properties from:', circleObj?.type, circleObj?.data?.type);
+    
+    // Extract only the relevant properties for circle objects
+    const properties: ToolProperties = {
+      color: this.toolProperties.color,
+      strokeWidth: this.toolProperties.strokeWidth,
+      opacity: this.toolProperties.opacity
+    };
+
+    // For circle objects, extract stroke properties
+    if (circleObj.data?.type === 'circle') {
+      properties.color = circleObj.stroke || properties.color;
+      properties.strokeWidth = circleObj.strokeWidth || properties.strokeWidth;
+      properties.opacity = circleObj.opacity ?? properties.opacity;
+      
+      console.log('🔍 Extracted circle properties:', {
+        color: properties.color,
+        strokeWidth: properties.strokeWidth,
+        opacity: properties.opacity
+      });
+    }
+
+    console.log('🔍 Final extracted circle properties:', properties);
+    return properties;
+  }
+
+  private extractArrowProperties(arrowObj: any): ToolProperties {
+    console.log('🔍 Extracting arrow properties from:', arrowObj?.type, arrowObj?.data?.type);
+    
+    // Extract only the relevant properties for arrow objects
+    const properties: ToolProperties = {
+      color: this.toolProperties.color,
+      strokeWidth: this.toolProperties.strokeWidth,
+      opacity: this.toolProperties.opacity
+    };
+
+    // For arrow objects, extract stroke properties
+    if (arrowObj.data?.type === 'arrow' || arrowObj.data?.type === 'arrow-group') {
+      properties.color = arrowObj.stroke || properties.color;
+      properties.strokeWidth = arrowObj.strokeWidth || properties.strokeWidth;
+      properties.opacity = arrowObj.opacity ?? properties.opacity;
+      
+      console.log('🔍 Extracted arrow properties:', {
+        color: properties.color,
+        strokeWidth: properties.strokeWidth,
+        opacity: properties.opacity
+      });
+    }
+
+    console.log('🔍 Final extracted arrow properties:', properties);
+    return properties;
+  }
+
+  private extractFreehandProperties(freehandObj: any): ToolProperties {
+    console.log('🔍 Extracting freehand properties from:', freehandObj?.type, freehandObj?.data?.type);
+    
+    // Extract only the relevant properties for freehand objects
+    const properties: ToolProperties = {
+      color: this.toolProperties.color,
+      strokeWidth: this.toolProperties.strokeWidth,
+      opacity: this.toolProperties.opacity
+    };
+
+    // For freehand objects (Path objects), extract stroke properties
+    if (freehandObj.type === 'path') {
+      properties.color = freehandObj.stroke || properties.color;
+      properties.strokeWidth = freehandObj.strokeWidth || properties.strokeWidth;
+      properties.opacity = freehandObj.opacity ?? properties.opacity;
+      
+      console.log('🔍 Extracted freehand properties:', {
+        color: properties.color,
+        strokeWidth: properties.strokeWidth,
+        opacity: properties.opacity
+      });
+    }
+
+    console.log('🔍 Final extracted freehand properties:', properties);
+    return properties;
+  }
+
+  private extractCalloutProperties(calloutObj: any): ToolProperties {
+    console.log('🔍 Extracting callout properties from:', calloutObj?.type, calloutObj?.data?.type);
+    
+    // Extract properties from callout group
+    const properties: ToolProperties = {
+      color: this.toolProperties.color,
+      strokeWidth: this.toolProperties.strokeWidth,
+      opacity: this.toolProperties.opacity,
+      fontSize: this.toolProperties.fontSize,
+      fontWeight: this.toolProperties.fontWeight,
+      fontStyle: this.toolProperties.fontStyle,
+      textAlign: this.toolProperties.textAlign,
+      colorTarget: 'border' // Callouts always target border since we removed color target buttons
+    };
+
+    // If it's a callout group, extract properties from the text and box objects
+    if (calloutObj.type === 'group' && calloutObj.data?.type === 'callout-group') {
+      const textObj = calloutObj.getObjects().find((obj: any) => obj.data?.type === 'text');
+      const textBox = calloutObj.getObjects().find((obj: any) => obj.data?.type === 'callout-box');
+      
+      if (textObj) {
+        properties.fontSize = textObj.fontSize || properties.fontSize;
+        properties.fontWeight = textObj.fontWeight || properties.fontWeight;
+        properties.fontStyle = textObj.fontStyle || properties.fontStyle;
+        properties.textAlign = textObj.textAlign || properties.textAlign;
+        properties.opacity = textObj.opacity || properties.opacity;
+      }
+      
+      if (textBox) {
+        properties.strokeWidth = textBox.strokeWidth || properties.strokeWidth;
+        properties.color = textBox.stroke || properties.color;
+        // Don't extract opacity from textBox - it should come from textObj only
+      }
+    }
+
+    console.log('🔍 Final extracted callout properties:', properties);
+    return properties;
+  }
+
+  private updateControlPanelWithCalloutProperties(calloutObj: any) {
+    console.log('🎛️ updateControlPanelWithCalloutProperties called with:', calloutObj?.type, calloutObj?.data?.type);
+    if (!this.onPropertiesUpdate) {
+      console.log('❌ No onPropertiesUpdate callback available');
+      return;
+    }
+    
+    const calloutProperties = this.extractCalloutProperties(calloutObj);
+    console.log('🎛️ Updating control panel with callout properties:', calloutProperties);
+    
+    // Create a clean properties object with only callout-relevant properties
+    const cleanProperties: ToolProperties = {
+      color: calloutProperties.color,
+      strokeWidth: calloutProperties.strokeWidth,
+      opacity: calloutProperties.opacity,
+      fontSize: calloutProperties.fontSize,
+      fontWeight: calloutProperties.fontWeight,
+      fontStyle: calloutProperties.fontStyle,
+      textAlign: calloutProperties.textAlign,
+      colorTarget: 'border', // Callouts always target border since we removed color target buttons
+      // Set all other properties to their defaults
+      textBoxLineThickness: 1.5,
+      cloudLineThickness: 2,
+      rectangleLineThickness: 2,
+      circleLineThickness: 2,
+      arrowLineThickness: 2,
+      freehandLineThickness: 2
+    };
+    
+    this.toolProperties = cleanProperties;
+    console.log('🎛️ Updated toolProperties (clean):', this.toolProperties);
+    
+    // Notify the UI to update the control panel
+    this.onPropertiesUpdate(this.toolProperties);
+    console.log('🎛️ Called onPropertiesUpdate');
+  }
+
+  private updateControlPanelWithFreehandProperties(freehandObj: any) {
+    console.log('🎛️ updateControlPanelWithFreehandProperties called with:', freehandObj?.type, freehandObj?.data?.type);
+    if (!this.onPropertiesUpdate) {
+      console.log('❌ No onPropertiesUpdate callback available');
+      return;
+    }
+    
+    const freehandProperties = this.extractFreehandProperties(freehandObj);
+    console.log('🎛️ Updating control panel with freehand properties:', freehandProperties);
+    
+    // Create a clean properties object with only freehand-relevant properties
+    const cleanProperties: ToolProperties = {
+      color: freehandProperties.color,
+      strokeWidth: freehandProperties.strokeWidth,
+      opacity: freehandProperties.opacity,
+      // Set all other properties to their defaults
+      textBoxLineThickness: 1.5,
+      cloudLineThickness: 2,
+      rectangleLineThickness: 2,
+      circleLineThickness: 2,
+      arrowLineThickness: 2,
+      freehandLineThickness: 2,
+      colorTarget: 'border'
+    };
+    
+    this.toolProperties = cleanProperties;
+    console.log('🎛️ Updated toolProperties (clean):', this.toolProperties);
+    
+    // Notify the UI to update the control panel
+    this.onPropertiesUpdate(this.toolProperties);
+    console.log('🎛️ Called onPropertiesUpdate');
+  }
+
+  private updateControlPanelWithArrowProperties(arrowObj: any) {
+    console.log('🎛️ updateControlPanelWithArrowProperties called with:', arrowObj?.type, arrowObj?.data?.type);
+    if (!this.onPropertiesUpdate) {
+      console.log('❌ No onPropertiesUpdate callback available');
+      return;
+    }
+    
+    const arrowProperties = this.extractArrowProperties(arrowObj);
+    console.log('🎛️ Updating control panel with arrow properties:', arrowProperties);
+    
+    // Create a clean properties object with ONLY arrow-relevant properties
+    const cleanProperties: ToolProperties = {
+      color: arrowProperties.color,
+      strokeWidth: arrowProperties.strokeWidth,
+      opacity: arrowProperties.opacity,
+      arrowLineThickness: arrowProperties.strokeWidth, // Use the same value as strokeWidth
+      colorTarget: 'border'
+    };
+    
+    this.toolProperties = cleanProperties;
+    console.log('🎛️ Updated toolProperties (clean):', this.toolProperties);
+    
+    // Notify the UI to update the control panel
+    this.onPropertiesUpdate(this.toolProperties);
+    console.log('🎛️ Called onPropertiesUpdate');
+  }
+
+  private updateControlPanelWithCircleProperties(circleObj: any) {
+    console.log('🎛️ updateControlPanelWithCircleProperties called with:', circleObj?.type, circleObj?.data?.type);
+    if (!this.onPropertiesUpdate) {
+      console.log('❌ No onPropertiesUpdate callback available');
+      return;
+    }
+    
+    const circleProperties = this.extractCircleProperties(circleObj);
+    console.log('🎛️ Updating control panel with circle properties:', circleProperties);
+    
+    // Create a clean properties object with only circle-relevant properties
+    const cleanProperties: ToolProperties = {
+      color: circleProperties.color,
+      strokeWidth: circleProperties.strokeWidth,
+      opacity: circleProperties.opacity,
+      // Set all other properties to their defaults
+      fontSize: 14,
+      fontWeight: 300,
+      textBoxLineThickness: 1.5,
+      cloudLineThickness: 2,
+      rectangleLineThickness: 2,
+      circleLineThickness: 2,
+      arrowLineThickness: 2,
+      freehandLineThickness: 2,
+      colorTarget: 'border'
+    };
+    
+    this.toolProperties = cleanProperties;
+    console.log('🎛️ Updated toolProperties (clean):', this.toolProperties);
+    
+    // Notify the UI to update the control panel
+    this.onPropertiesUpdate(this.toolProperties);
+    console.log('🎛️ Called onPropertiesUpdate');
+  }
+
+  private updateControlPanelWithRectangleProperties(rectangleObj: any) {
+    console.log('🎛️ updateControlPanelWithRectangleProperties called with:', rectangleObj?.type, rectangleObj?.data?.type);
+    if (!this.onPropertiesUpdate) {
+      console.log('❌ No onPropertiesUpdate callback available');
+      return;
+    }
+    
+    const rectangleProperties = this.extractRectangleProperties(rectangleObj);
+    console.log('🎛️ Updating control panel with rectangle properties:', rectangleProperties);
+    
+    // Create a clean properties object with only rectangle-relevant properties
+    const cleanProperties: ToolProperties = {
+      color: rectangleProperties.color,
+      strokeWidth: rectangleProperties.strokeWidth,
+      opacity: rectangleProperties.opacity,
+      // Set all other properties to their defaults
+      fontSize: 14,
+      fontWeight: 300,
+      textBoxLineThickness: 1.5,
+      cloudLineThickness: 2,
+      rectangleLineThickness: 2,
+      circleLineThickness: 2,
+      arrowLineThickness: 2,
+      freehandLineThickness: 2,
+      colorTarget: 'border'
+    };
+    
+    this.toolProperties = cleanProperties;
+    console.log('🎛️ Updated toolProperties (clean):', this.toolProperties);
     
     // Notify the UI to update the control panel
     this.onPropertiesUpdate(this.toolProperties);

@@ -20,6 +20,7 @@ const navItems = [
   { label: "Trackers", icon: HiChartBar, href: "/dashboard/trackers" },
   { label: "Documents", icon: HiDocumentText, href: "/dashboard/documents" },
   { label: "Markups", icon: HiPencilAlt, href: "/dashboard/markups" },
+  { label: "Markups (New)", icon: HiPencilAlt, href: "/dashboard/markups-v2" },
   { label: "Inspection Test Plans", icon: HiClipboardList, href: "/dashboard/inspection-test-plans" },
   { label: "Inspection Test Reports", icon: HiClipboardCheck, href: "/dashboard/inspection-test-reports" },
   { label: "Punch Lists", icon: HiCheckCircle, href: "/dashboard/punch-lists" },

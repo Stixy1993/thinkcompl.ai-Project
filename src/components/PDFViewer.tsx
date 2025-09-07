@@ -161,6 +161,7 @@ interface PDFViewerProps {
     scallopSize?: number;
     cloudLineThickness?: number;
   }) => void;
+  onToolChange?: (tool: MarkupTool) => void;
 }
 
 function PDFViewerComponent({
@@ -174,7 +175,8 @@ function PDFViewerComponent({
   activeTool: externalActiveTool,
   toolProperties: externalToolProperties,
   onPDFControlsChange,
-  onToolPropertiesUpdate
+  onToolPropertiesUpdate,
+  onToolChange
 }: PDFViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -208,6 +210,8 @@ function PDFViewerComponent({
     textBorder: false,
     textBoxLineThickness: 1
   };
+  // Track previous tool properties to detect what actually changed
+  const prevToolPropsRef = useRef<any>(toolProperties);
   const [isLoading, setIsLoading] = useState(false);
   const [isRendering, setIsRendering] = useState(false);
   const [selectedAnnotation, setSelectedAnnotation] = useState<string | null>(null);
@@ -530,7 +534,7 @@ function PDFViewerComponent({
         clearInterval(progressInterval);
         setRenderProgress(100);
         console.log('PDFViewer: Page rendered successfully');
-      } catch (renderError) {
+      } catch (renderError: any) {
         clearTimeout(renderTimeout);
         clearInterval(progressInterval);
         if (renderError.name !== 'RenderingCancelledException') {
@@ -607,10 +611,22 @@ function PDFViewerComponent({
                 ...(externalToolProperties && (externalToolProperties as any).textBoxLineThickness !== undefined ? { textBoxLineThickness: (externalToolProperties as any).textBoxLineThickness as any } : {})
               }, (updatedProperties) => {
                 // Callback to update the UI when cloud properties are extracted
-                console.log('🎛️ ToolManager callback: Updating UI with cloud properties:', updatedProperties);
+                console.log('🎛️ ToolManager callback: Updating UI with tool properties:', updatedProperties);
                 // Call the parent callback to update the UI
                 if (onToolPropertiesUpdate) {
                   onToolPropertiesUpdate(updatedProperties);
+                }
+              }, (newTool) => {
+                // Callback to update the UI when tool changes
+                console.log('🛠️ ToolManager callback: Tool changed to:', newTool);
+                console.log('🛠️ PDFViewer: onToolChange callback exists:', !!onToolChange);
+                // Call the parent callback to update the active tool in UI
+                if (onToolChange) {
+                  console.log('🛠️ PDFViewer: Calling parent onToolChange with:', newTool);
+                  onToolChange(newTool);
+                  console.log('🛠️ PDFViewer: Parent onToolChange called');
+                } else {
+                  console.log('❌ PDFViewer: No onToolChange callback available');
                 }
               });
               toolManager.setCanvas(fabricCanvas);
@@ -738,7 +754,7 @@ function PDFViewerComponent({
 
       console.log('PDFViewer: Page rendering completed successfully');
 
-    } catch (error) {
+    } catch (error: any) {
       if (error.name !== 'RenderingCancelledException') {
         console.error('Error rendering page:', error);
         setError(`Rendering failed: ${error.message || 'Unknown error'}`);
@@ -817,8 +833,28 @@ function PDFViewerComponent({
             obj.data.originalWidth = (obj as any).width / scaleFactor;
             obj.data.originalHeight = (obj as any).height / scaleFactor;
             
-            if (obj.type === 'i-text' || obj.type === 'text') {
+            if (obj.type === 'i-text' || obj.type === 'text' || obj.type === 'textbox') {
               obj.data.originalFontSize = (obj as any).fontSize / scaleFactor;
+            }
+            
+            // Handle callout group resizing - update text constraints
+            if (obj.type === 'group' && obj.data?.type === 'callout') {
+              console.log('💬 Callout group modified, updating text constraints');
+              const textObj = obj.getObjects().find((groupObj: any) => groupObj.type === 'i-text' || groupObj.type === 'text' || groupObj.type === 'textbox');
+              const rectObj = obj.getObjects().find((groupObj: any) => groupObj.type === 'rect');
+              
+              if (textObj && rectObj) {
+                // Update text width and height to match the resized rectangle with padding
+                const newTextWidth = Math.max(20, (rectObj.width || 120) - 30); // 15px padding each side - more conservative
+                const newTextHeight = Math.max(20, (rectObj.height || 60) - 20); // 10px padding top/bottom
+                
+                textObj.set({
+                  width: newTextWidth,
+                  height: newTextHeight
+                });
+                
+                console.log('💬 Updated text constraints:', { width: newTextWidth, height: newTextHeight });
+              }
             }
           }
           
@@ -873,12 +909,15 @@ function PDFViewerComponent({
             });
           }
           // Snapshot selected text box properties to the UI so settings don't transfer between boxes
-          if (onToolPropertiesUpdate && (tool === 'text')) {
+          if (onToolPropertiesUpdate && (tool === 'text' || tool === 'callout')) {
             try {
               const group = obj.type === 'group' ? obj : null;
               const textObj = group ? group.getObjects().find((o: any) => o.type === 'textbox' || o.type === 'i-text') : (obj.type === 'textbox' || obj.type === 'i-text' ? obj : null);
               const rectObj = group ? group.getObjects().find((o: any) => o.type === 'rect') : null;
               if (textObj) {
+                const underlineFromObject = textObj.underline;
+                const textDecorationValue = underlineFromObject ? 'underline' : 'none';
+                // console.log('📖 Reading underline from object:', underlineFromObject, 'converted to:', textDecorationValue);
                 const snapshot = {
                   color: (textObj.fill || '#000000') as any,
                   fontSize: (textObj.fontSize || 14) as any,
@@ -886,7 +925,8 @@ function PDFViewerComponent({
                   fontStyle: (textObj.fontStyle || 'normal') as any,
                   textAlign: (textObj.textAlign || 'left') as any,
                   opacity: (textObj.opacity ?? 1.0) as any,
-                  underline: !!(textObj.underline),
+                  // Read the actual underline property from the text object
+                  textDecoration: textDecorationValue as any,
                   // border snapshot
                   ...(rectObj ? { textBorder: ((rectObj.strokeWidth || 0) > 0) as any, textBoxLineThickness: (rectObj.strokeWidth || 0) as any } : {})
                 };
@@ -1122,6 +1162,11 @@ function PDFViewerComponent({
       opacity: toolProperties.opacity || 1.0,
       selectable: true,
       editable: true,
+      // Apply underline property when creating new text
+      underline: (toolProperties as any).textDecoration === 'underline',
+      // Ensure background is visible
+      backgroundColor: 'white',
+      textBackgroundColor: 'white',
       data: {
         isAnnotation: true,
         type: 'text',
@@ -1229,13 +1274,16 @@ function PDFViewerComponent({
 
   const startCalloutDrawing = (x: number, y: number) => {
     // Create a callout with a text box and leader line
+    const calloutColor = toolProperties.color || '#333333';
+    const calloutStrokeWidth = toolProperties.strokeWidth || 1.5;
+    
          const callout = new (fabric as any).Group([
        new (fabric as any).Rect({
         width: 120,
         height: 60,
         fill: '#ffffcc',
-        stroke: '#333333',
-        strokeWidth: 1,
+        stroke: calloutColor,
+        strokeWidth: calloutStrokeWidth,
         rx: 3,
         ry: 3
       }),
@@ -1243,27 +1291,35 @@ function PDFViewerComponent({
         width: 10,
         height: 10,
         fill: '#ffffcc',
-        stroke: '#333333',
-        strokeWidth: 1,
+        stroke: calloutColor,
+        strokeWidth: calloutStrokeWidth,
         left: -5,
         top: 25,
         angle: -90
       }),
-             new (fabric as any).IText('Add comment...', {
-        fontSize: toolProperties.fontSize || 12,
-        fill: '#333333',
+             new (fabric as any).Textbox('Comment...', {
+        fontSize: toolProperties.fontSize || 14,
+        fill: calloutColor,
         fontWeight: toolProperties.fontWeight || 400,
         opacity: toolProperties.opacity || 1.0,
         textAlign: toolProperties.textAlign || 'left',
         left: 10,
         top: 10,
-        width: 100,
+        width: 90, // 120px box - 30px padding (15px each side) - more conservative
+        height: 40, // 60px box - 20px padding (10px top/bottom)
         editable: true,
         // Add text wrapping and boundary constraints
         wordWrap: 'break-word', // Enable word wrapping
         splitByGrapheme: false, // Don't split by individual characters
         lockScalingX: true, // Prevent manual scaling
-        lockScalingY: true // Prevent manual scaling
+        lockScalingY: true, // Prevent manual scaling
+        // Textbox automatically handles text overflow better than IText
+        breakWords: true,
+        // Apply underline property when creating new callout
+        underline: (toolProperties as any).textDecoration === 'underline',
+        // Ensure background is visible
+        backgroundColor: 'white',
+        textBackgroundColor: 'white'
       })
     ], {
       left: x,
@@ -1381,7 +1437,7 @@ function PDFViewerComponent({
         
         // Add or update measurement text
         const textId = `measurement_text_${measureLine.data?.id}`;
-        const existingText = fabricCanvasRef.current?.getObjects().find(obj => obj.data?.textId === textId);
+        const existingText = fabricCanvasRef.current?.getObjects().find((obj: any) => obj.data?.textId === textId);
         
         if (existingText) {
           (existingText as any).set({
@@ -2087,51 +2143,96 @@ function PDFViewerComponent({
 
   // Handle tool properties changes to update selected text objects
   useEffect(() => {
-    if (fabricCanvasRef.current && toolProperties) {
+    if (fabricCanvasRef.current && toolProperties && !syncingFromSelectionRef.current) {
       const canvas = fabricCanvasRef.current;
       const activeObject = canvas.getActiveObject();
       
-      console.log('🎨 Tool properties changed:', toolProperties);
-      console.log('🎯 Active object:', activeObject);
+      // console.log('🎨 Tool properties changed:', toolProperties);
+      // console.log('🎯 Active object:', activeObject);
+      // console.log('🎯 Active object type:', activeObject?.type);
+      // console.log('🎯 Active object data:', activeObject?.data);
       
+      const prev = prevToolPropsRef.current || {};
+      const colorTarget = (toolProperties as any).colorTarget;
+      const textColorChanged = ((prev as any).textColor !== (toolProperties as any).textColor) || (prev.color !== toolProperties.color);
+      const applyColorToText = colorTarget !== 'border';
+      const textRelatedChange = (
+        (prev.fontSize !== toolProperties.fontSize) ||
+        (prev.fontWeight !== toolProperties.fontWeight) ||
+        (prev.fontStyle !== toolProperties.fontStyle) ||
+        (prev.textAlign !== toolProperties.textAlign) ||
+        (prev.textDecoration !== (toolProperties as any).textDecoration) ||
+        (applyColorToText && textColorChanged) ||
+        false
+      );
+      
+      // Only update if there's an active object and it's an annotation
       if (activeObject && activeObject.data?.isAnnotation) {
         console.log('📝 Updating object type:', activeObject.type, 'isPlaceholder:', activeObject.data?.isPlaceholder);
         
         // Update the active object with new properties
         if (activeObject.type === 'i-text' || activeObject.type === 'text') {
-           // For text objects, update color, fontSize, fontWeight, opacity, and textAlign
-           console.log('✏️ Setting text properties:', {
-             color: (toolProperties as any).textColor || toolProperties.color,
-             fontSize: toolProperties.fontSize,
-             fontWeight: toolProperties.fontWeight,
-             opacity: toolProperties.opacity,
-             textAlign: toolProperties.textAlign
-           });
-           // Only change text fill when targeting text or both
-           const textFill = (toolProperties as any).textColor || toolProperties.color;
-           activeObject.set({
-             ...( ((toolProperties as any).colorTarget !== 'border') ? { fill: textFill } : {} ),
-             fontSize: toolProperties.fontSize || 12,
-             fontWeight: toolProperties.fontWeight || 400,
-             opacity: toolProperties.opacity || 1.0,
-             textAlign: toolProperties.textAlign || 'left'
-           });
-           canvas.renderAll();
+           // Only update text when a text-related property actually changed
+           if (!textRelatedChange) {
+             console.log('✏️ Skipping text update: no text-related property changed');
+           } else {
+             // For text objects, update color, fontSize, fontWeight, opacity, and textAlign
+             console.log('✏️ Setting text properties:', {
+               color: (toolProperties as any).textColor || toolProperties.color,
+               fontSize: toolProperties.fontSize,
+               fontWeight: toolProperties.fontWeight,
+               opacity: toolProperties.opacity,
+               textAlign: toolProperties.textAlign
+             });
+             // Only change text fill when targeting text or both
+             const textFill = (toolProperties as any).textColor || toolProperties.color;
+             const underlineValue = (toolProperties as any).textDecoration === 'underline';
+             // console.log('🔤 Applying underline to text:', underlineValue, 'textDecoration:', (toolProperties as any).textDecoration);
+             activeObject.set({
+               ...( ((toolProperties as any).colorTarget !== 'border') ? { fill: textFill } : {} ),
+               fontSize: toolProperties.fontSize || 12,
+               fontWeight: toolProperties.fontWeight || 400,
+               opacity: toolProperties.opacity || 1.0,
+               textAlign: toolProperties.textAlign || 'left',
+               // Apply underline only to the selected text object
+               underline: underlineValue,
+               // Ensure background is visible
+               backgroundColor: 'white',
+               textBackgroundColor: 'white'
+             });
+             canvas.renderAll();
+           }
         } else if (activeObject.type === 'group' && activeObject.data?.type === 'callout') {
-          // For callout groups, update the text object inside
-          console.log('💬 Updating callout group text properties');
-          const textObj = activeObject.getObjects().find((obj: any) => obj.type === 'i-text' || obj.type === 'text');
-          if (textObj) {
-            const calloutTextFill = (toolProperties as any).textColor || toolProperties.color;
-            textObj.set({
-              ...( ((toolProperties as any).colorTarget !== 'border') ? { fill: calloutTextFill } : {} ),
-              fontSize: toolProperties.fontSize || 12,
-              fontWeight: toolProperties.fontWeight || 400,
-              opacity: toolProperties.opacity || 1.0,
-              textAlign: toolProperties.textAlign || 'left'
-            });
-            canvas.renderAll();
-          }
+          // For callout groups, update both text and border colors
+          console.log('💬 Updating callout group properties');
+          const calloutColor = toolProperties.color;
+          const calloutStrokeWidth = toolProperties.strokeWidth || 1.5;
+          
+          // Update all objects in the callout group
+          activeObject.getObjects().forEach((obj: any) => {
+            if (obj.type === 'i-text' || obj.type === 'text' || obj.type === 'textbox') {
+              // Update text properties
+              obj.set({
+                fill: calloutColor,
+                fontSize: toolProperties.fontSize || 12,
+                fontWeight: toolProperties.fontWeight || 400,
+                opacity: toolProperties.opacity || 1.0,
+                textAlign: toolProperties.textAlign || 'left',
+                // Apply underline only to the selected callout
+                underline: (toolProperties as any).textDecoration === 'underline',
+                // Ensure background is visible
+                backgroundColor: 'white',
+                textBackgroundColor: 'white'
+              });
+            } else if (obj.type === 'rect' || obj.type === 'triangle') {
+              // Update border properties for rectangle and triangle (callout pointer)
+              obj.set({
+                stroke: calloutColor,
+                strokeWidth: calloutStrokeWidth
+              });
+            }
+          });
+          canvas.renderAll();
         } else if (activeObject.data?.type === 'cloud') {
           // For cloud objects, only update stroke properties and keep fill transparent
           console.log('☁️ Updating cloud properties');
@@ -2188,6 +2289,8 @@ function PDFViewerComponent({
       } else {
         console.log('❌ No active annotation object to update');
       }
+      // Update ref for next diff comparison
+      prevToolPropsRef.current = toolProperties;
     }
   }, [toolProperties]);
 
@@ -2211,7 +2314,7 @@ function PDFViewerComponent({
         scallopSize: toolProperties.scallopSize,
         cloudLineThickness: toolProperties.cloudLineThickness,
         fontStyle: toolProperties.fontStyle as any,
-        underline: toolProperties.textDecoration === 'underline',
+        // underline: toolProperties.textDecoration === 'underline', // Removed - handled locally in text update logic
         colorTarget: (toolProperties as any).colorTarget || 'border',
         textBorder: toolProperties.textBorder,
         textBoxLineThickness: toolProperties.textBoxLineThickness

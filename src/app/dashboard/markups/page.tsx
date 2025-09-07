@@ -255,7 +255,7 @@ Common Issues:
                   }
                 }}
                 onToolPropertiesUpdate={(properties) => {
-                  console.log('🎛️ Parent: Updating tool properties from cloud selection:', properties);
+                  console.log('🎛️ Parent: Updating tool properties from selection:', properties);
                   const alignAny = (properties as any).textAlign as 'left' | 'center' | 'right' | 'justify' | undefined;
                   const coercedAlign: 'left' | 'center' | 'right' = alignAny === 'justify' ? 'left' : (alignAny || 'left');
                   setToolProperties(prev => ({
@@ -274,6 +274,17 @@ Common Issues:
                     textBorder: (properties as any).textBorder !== undefined ? (properties as any).textBorder : prev.textBorder,
                     textBoxLineThickness: (properties as any).textBoxLineThickness !== undefined ? (properties as any).textBoxLineThickness : prev.textBoxLineThickness
                   }));
+                }}
+                onToolChange={(tool) => {
+                  console.log('🛠️ Parent: Tool changed to:', tool);
+                  console.log('🛠️ Parent: Current activeTool before change:', activeTool);
+                  setActiveTool(tool);
+                  console.log('🛠️ Parent: Setting activeTool to:', tool);
+                  // Track the last non-select tool for property panel display
+                  if (tool !== 'select') {
+                    setLastActiveTool(tool);
+                    console.log('🛠️ Parent: Setting lastActiveTool to:', tool);
+                  }
                 }}
                 activeTool={activeTool as any}
                 toolProperties={toolProperties}
@@ -415,23 +426,6 @@ Common Issues:
                     </div>
                   </div>
                   
-                  {/* Color target toggle for Callout */}
-                    {((activeTool === 'callout') || (activeTool === 'select' && lastActiveTool === 'callout')) && (
-                      <div className="mt-3 flex justify-center">
-                        <div className="inline-flex rounded-md shadow-sm border border-gray-300 overflow-hidden text-[10px]">
-                          {(['border','text','both'] as const).map((target, idx) => (
-                            <button
-                              key={target}
-                              onClick={() => setToolProperties(prev => ({ ...prev, colorTarget: target }))}
-                              className={`px-4 py-1.5 ${toolProperties.colorTarget === target ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'} ${idx === 0 ? '' : 'border-l border-gray-300'}`}
-                              title={`Apply color to ${target}`}
-                            >
-                              {target === 'border' ? 'Border' : target === 'text' ? 'Text' : 'Both'}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
 
                     {/* Removed text/border/both buttons for single-color mode */}
                   
@@ -465,19 +459,74 @@ Common Issues:
                     </>
                   )}
 
-                  {/* Callout-only: Line Thickness & Opacity */}
+                  {/* Rectangle-only: Line Thickness */}
+                  {(activeTool === 'rectangle' || (activeTool === 'select' && lastActiveTool === 'rectangle')) && (
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">Line Thickness</label>
+                        <span className="text-xs text-gray-500">{toolProperties.strokeWidth.toFixed(2)}px</span>
+                      </div>
+                      <input type="range" min="0.5" max="4" step="0.5" value={toolProperties.strokeWidth} onChange={(e) => setToolProperties(prev => ({ ...prev, strokeWidth: parseFloat(e.target.value) }))} className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer slider" />
+                    </div>
+                  )}
+
+                  {/* Circle-only: Line Thickness */}
+                  {(activeTool === 'circle' || (activeTool === 'select' && lastActiveTool === 'circle')) && (
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">Line Thickness</label>
+                        <span className="text-xs text-gray-500">{toolProperties.strokeWidth.toFixed(2)}px</span>
+                      </div>
+                      <input type="range" min="0.5" max="4" step="0.5" value={toolProperties.strokeWidth} onChange={(e) => setToolProperties(prev => ({ ...prev, strokeWidth: parseFloat(e.target.value) }))} className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer slider" />
+                    </div>
+                  )}
+
+                  {/* Arrow-only: Line Thickness */}
+                  {(activeTool === 'arrow' || (activeTool === 'select' && lastActiveTool === 'arrow')) && (
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">Line Thickness</label>
+                        <span className="text-xs text-gray-500">{toolProperties.strokeWidth.toFixed(2)}px</span>
+                      </div>
+                      <input type="range" min="0.5" max="4" step="0.5" value={toolProperties.strokeWidth} onChange={(e) => setToolProperties(prev => ({ ...prev, strokeWidth: parseFloat(e.target.value) }))} className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer slider" />
+                    </div>
+                  )}
+
+                  {/* Freehand-only: Line Thickness */}
+                  {(activeTool === 'freehand' || (activeTool === 'select' && lastActiveTool === 'freehand')) && (
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">Line Thickness</label>
+                        <span className="text-xs text-gray-500">{toolProperties.strokeWidth.toFixed(2)}px</span>
+                      </div>
+                      <input type="range" min="0.5" max="4" step="0.5" value={toolProperties.strokeWidth} onChange={(e) => setToolProperties(prev => ({ ...prev, strokeWidth: parseFloat(e.target.value) }))} className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer slider" />
+                    </div>
+                  )}
+
+                  {/* Callout-only: Same layout as text box but without text border toggle */}
                   {(activeTool === 'callout' || (activeTool === 'select' && lastActiveTool === 'callout')) && (
                     <>
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">Line Thickness</label>
-                          <span className="text-xs text-gray-500">{toolProperties.strokeWidth.toFixed(2)}px</span>
-                        </div>
-                        <input type="range" min="0.5" max="4" step="0.5" value={toolProperties.strokeWidth} onChange={(e) => setToolProperties(prev => ({ ...prev, strokeWidth: parseFloat(e.target.value) }))} className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer slider" />
-                      </div>
+                      {/* Text size (first) */}
                       <div className="mt-3">
-                        <div className="flex items-center justify-between mb-1"><label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">Opacity</label><span className="text-xs text-gray-500">{Math.round(toolProperties.opacity * 100)}%</span></div>
-                        <input type="range" min="0" max="1" step="0.1" value={toolProperties.opacity} onChange={(e) => setToolProperties(prev => ({ ...prev, opacity: parseFloat(e.target.value) }))} className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer slider" />
+                        <div className="flex items-center justify-between mb-1"><label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">Text Size</label><span className="text-xs text-gray-500">{toolProperties.fontSize}px</span></div>
+                        <input type="range" min="8" max="48" step="1" value={toolProperties.fontSize || 14} onChange={(e) => setToolProperties(prev => ({ ...prev, fontSize: parseInt(e.target.value) }))} className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer slider" />
+                      </div>
+                      {/* Style & Alignment under size */}
+                      <div className="mt-3 flex items-center space-x-2">
+                        <button onClick={() => setToolProperties(prev => ({ ...prev, fontWeight: prev.fontWeight === 700 ? 300 : 700 }))} className={`w-8 h-8 rounded-lg flex items-center justify-center ${toolProperties.fontWeight === 700 ? 'bg-blue-200' : 'hover:bg-blue-200'}`} title="Bold"><div className="text-sm font-black text-gray-700">B</div></button>
+                        <button onClick={() => setToolProperties(prev => ({ ...prev, fontStyle: prev.fontStyle === 'italic' ? 'normal' : 'italic' }))} className={`w-8 h-8 rounded-lg flex items-center justify-center ${toolProperties.fontStyle === 'italic' ? 'bg-blue-200' : 'hover:bg-blue-200'}`} title="Italic"><div className="text-xs font-semibold text-gray-700" style={{ fontStyle: 'italic' }}>I</div></button>
+                        <button onClick={() => setToolProperties(prev => ({ ...prev, textDecoration: prev.textDecoration === 'underline' ? 'none' : 'underline' }))} className={`w-8 h-8 rounded-lg flex items-center justify-center ${toolProperties.textDecoration === 'underline' ? 'bg-blue-200' : 'hover:bg-blue-200'}`} title="Underline"><div className="text-xs font-semibold text-gray-700" style={{ textDecoration: 'underline' }}>U</div></button>
+                        <button onClick={() => setToolProperties(prev => ({ ...prev, textAlign: 'left' }))} className={`w-8 h-8 rounded-lg flex items-center justify-center ${toolProperties.textAlign === 'left' ? 'bg-blue-200' : 'hover:bg-blue-200'}`} title="Left Align"><svg className="w-4 h-4 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h12M4 18h16" /></svg></button>
+                        <button onClick={() => setToolProperties(prev => ({ ...prev, textAlign: 'center' }))} className={`w-8 h-8 rounded-lg flex items-center justify-center ${toolProperties.textAlign === 'center' ? 'bg-blue-200' : 'hover:bg-blue-200'}`} title="Center Align"><svg className="w-4 h-4 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg></button>
+                        <button onClick={() => setToolProperties(prev => ({ ...prev, textAlign: 'right' }))} className={`w-8 h-8 rounded-lg flex items-center justify-center ${toolProperties.textAlign === 'right' ? 'bg-blue-200' : 'hover:bg-blue-200'}`} title="Right Align"><svg className="w-4 h-4 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 6h16M12 12h16M8 18h16" /></svg></button>
+                      </div>
+                      {/* Callout Border Thickness (always visible, no toggle) */}
+                      <div className="mt-4">
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">Border Thickness</label>
+                          <span className="text-xs text-gray-500">{(toolProperties.strokeWidth || 1).toFixed(1)}px</span>
+                        </div>
+                        <input type="range" min="0.5" max="4" step="0.5" value={toolProperties.strokeWidth || 1.5} onChange={(e) => setToolProperties(prev => ({ ...prev, strokeWidth: Math.min(parseFloat(e.target.value), 4) }))} className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer slider" />
                       </div>
                     </>
                   )}

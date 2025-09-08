@@ -1,5 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+// Filter noisy DEBUG logs unless explicitly enabled
+const ENABLE_DEBUG_LOGS = process.env.SHAREPOINT_DEBUG === 'true';
+const __origConsoleLog = console.log;
+console.log = (...args: any[]) => {
+  if (!ENABLE_DEBUG_LOGS && typeof args[0] === 'string' && args[0].startsWith('DEBUG:')) {
+    return;
+  }
+  __origConsoleLog(...args);
+};
+
+// Also filter console.error lines that are used for DEBUG output
+const __origConsoleError = console.error;
+console.error = (...args: any[]) => {
+  if (!ENABLE_DEBUG_LOGS && typeof args[0] === 'string' && args[0].startsWith('DEBUG:')) {
+    return;
+  }
+  __origConsoleError(...args);
+};
+
 // Function to refresh expired access tokens
 async function refreshAccessToken(refreshToken: string): Promise<string> {
   const tokenResponse = await fetch('https://login.microsoftonline.com/common/oauth2/v2.0/token', {

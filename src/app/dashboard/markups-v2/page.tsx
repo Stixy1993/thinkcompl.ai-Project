@@ -92,6 +92,56 @@ export default function MarkupsV2Page() {
     undo: () => void;
     redo: () => void;
   } | null>(null);
+  const [showStampModal, setShowStampModal] = useState(false);
+  const [stampTemplate, setStampTemplate] = useState<{ title: string; status?: 'APPROVED' | 'AS-BUILT' | 'REJECTED' | 'CUSTOM'; color?: string; opacity?: number; strokeWidth?: number; logoUrl?: string; fontSize?: number } | null>(null);
+  const [stampBuilder, setStampBuilder] = useState<{ title: string; status: 'APPROVED' | 'AS-BUILT' | 'REJECTED' | 'CUSTOM'; color: string; opacity: number; strokeWidth: number; fontSize: number; useCompanyLogo?: boolean }>({ title: '', status: 'CUSTOM', color: '#ef4444', opacity: 1, strokeWidth: 2, fontSize: 14, useCompanyLogo: false });
+  const [customPresets, setCustomPresets] = useState<Array<{ title: string; status: 'APPROVED' | 'AS-BUILT' | 'REJECTED' | 'CUSTOM'; color: string; opacity: number; strokeWidth: number; fontSize: number; useCompanyLogo?: boolean }>>([]);
+  const [presetTab, setPresetTab] = useState<'default' | 'custom'>('default');
+  const previewRef = useRef<HTMLDivElement | null>(null);
+  // Compute the largest font size up to a desired amount that still fits by wrapping within the preview box
+  const fitFontSize = useCallback((desired: number) => {
+    const box = previewRef.current;
+    const width = Math.max(120, box?.clientWidth || 320);
+    const height = Math.max(40, box?.clientHeight || 112);
+    const padding = 16; // px
+    const availableWidth = Math.max(20, width - padding * 2);
+    const availableHeight = Math.max(12, height - padding * 2);
+    const text = (stampBuilder.title || 'Custom text');
+    try {
+      const ctx = document.createElement('canvas').getContext('2d');
+      if (!ctx) return Math.max(8, Math.min(desired, 96));
+      // Helper wrap at a given font size
+      const wraps = (fontPx: number) => {
+        ctx.font = `${fontPx}px Arial`;
+        const tokens = text.split(/(\s+)/);
+        const lines: string[] = [];
+        let line = '';
+        for (const tk of tokens) {
+          const test = line + tk;
+          if (ctx.measureText(test).width <= availableWidth || line.length === 0) {
+            line = test;
+          } else {
+            lines.push(line.trimEnd());
+            line = tk.trimStart();
+          }
+        }
+        if (line) lines.push(line.trimEnd());
+        return lines;
+      };
+      // Binary search maximum font size that fits height with wrapping
+      let lo = 8, hi = Math.min(96, Math.max(8, desired));
+      let best = lo;
+      while (lo <= hi) {
+        const mid = Math.floor((lo + hi) / 2);
+        const lines = wraps(mid);
+        const requiredH = lines.length * mid * 1.2; // 1.2 line-height
+        if (requiredH <= availableHeight) { best = mid; lo = mid + 1; } else { hi = mid - 1; }
+      }
+      return best;
+    } catch {
+      return Math.max(8, Math.min(desired, 96));
+    }
+  }, [stampBuilder.title]);
 
   const handleClickOutside = useCallback((e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
@@ -283,6 +333,7 @@ Common Issues:
                 }}
                 activeTool={activeTool as any}
                 toolProperties={toolProperties}
+                stampTemplate={stampTemplate}
                 className="w-full"
               />
 
@@ -569,10 +620,9 @@ Common Issues:
                 <div key={tool.id} className="relative group">
                   <button
                     onClick={() => {
+                      if (tool.id === 'stamp') { setShowStampModal(true); return; }
                       setActiveTool(tool.id as string);
-                      if (tool.id !== 'select') {
-                        setLastActiveTool(tool.id as string);
-                      }
+                      if (tool.id !== 'select') { setLastActiveTool(tool.id as string); }
                     }}
                     className={`flex items-center justify-center rounded-lg text-gray-700 transition-colors duration-200 py-1.5 px-4 w-full ${
                       activeTool === tool.id ? "font-semibold text-blue-700" : ""
@@ -762,6 +812,138 @@ Common Issues:
               >
                 Fit
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Stamp Gallery / Builder Modal */}
+      {showStampModal && (
+        <div className="fixed inset-0 z-[100000] flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl mx-4 overflow-hidden border border-gray-200 max-h-[80vh] flex flex-col">
+            <div className="p-3 flex md:flex-row gap-4 min-h-0">
+              {/* Presets left + compact switch at the top */}
+              <div className="md:w-5/12 w-full flex flex-col pr-1 min-h-0">
+                <div className="flex items-center justify-between mb-2 px-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-700">Default</span>
+                    <button
+                      role="switch"
+                      aria-checked={presetTab === 'custom'}
+                      onClick={() => setPresetTab(presetTab === 'custom' ? 'default' : 'custom')}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${presetTab === 'custom' ? 'bg-blue-600' : 'bg-gray-300'}`}
+                    >
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${presetTab === 'custom' ? 'translate-x-6' : 'translate-x-1'}`}></span>
+                    </button>
+                    <span className="text-sm text-gray-700">Custom</span>
+                  </div>
+                </div>
+                <div className="flex-1 overflow-y-auto">
+                  <div className="grid grid-cols-1 gap-2">
+              {(presetTab === 'default' ? [
+                { title: 'APPROVED', status: 'APPROVED', color: '#16a34a' },
+                { title: 'NOT APPROVED', status: 'REJECTED', color: '#ef4444' },
+                { title: 'AS-BUILT', status: 'AS-BUILT', color: '#ef4444' },
+                { title: 'DRAFT', status: 'CUSTOM', color: '#1e3a8a' },
+                { title: 'FINAL', status: 'CUSTOM', color: '#166534' },
+                { title: 'VOID', status: 'CUSTOM', color: '#b91c1c' },
+                { title: 'FOR COMMENT', status: 'CUSTOM', color: '#2563eb' },
+                { title: 'COMPLETED', status: 'CUSTOM', color: '#22c55e' },
+                { title: 'CONFIDENTIAL', status: 'CUSTOM', color: '#64748b' },
+                { title: 'ISSUED FOR\nCONSTRUCTION', status: 'CUSTOM', color: '#ef4444' }
+              ] : customPresets).map((preset) => (
+                <button key={preset.title} onClick={() => {
+                  setStampTemplate({ ...preset } as any);
+                  // Force a small debounce to ensure child sees updated prop before click
+                  // Close modal and switch to stamp tool immediately so next click places it
+                  setShowStampModal(false);
+                  setActiveTool('stamp');
+                  setLastActiveTool('stamp');
+                }}
+                  className="border border-gray-200 rounded-lg p-2 hover:shadow-md transition-shadow text-left max-w-[340px] w-full mx-auto">
+                  <div className="h-14 rounded-md border-2 flex items-center justify-center text-center px-2" style={{ borderColor: preset.color as string }}>
+                    <div className="text-xs font-semibold whitespace-pre-line" style={{ color: preset.color as string }}>{preset.title}</div>
+                  </div>
+                  <div className="mt-1 text-[11px] text-gray-600">{preset.title.replace('\n',' / ')}</div>
+                </button>
+              ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Custom builder right */}
+              <div className="md:w-7/12 w-full border-t md:border-t-0 md:border-l pt-4 md:pt-0 md:pl-4 border-gray-200">
+                <h4 className="text-sm font-semibold text-gray-700 mb-3">Custom Builder</h4>
+                <div className="flex flex-col gap-3">
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">Title</label>
+                    <input className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" placeholder="Custom text" value={stampBuilder.title} onChange={e => setStampBuilder(prev => ({ ...prev, title: e.target.value }))} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Status</label>
+                      <select className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" value={stampBuilder.status} onChange={e => setStampBuilder(prev => ({ ...prev, status: e.target.value as any }))}>
+                        <option>APPROVED</option>
+                        <option>AS-BUILT</option>
+                        <option>REJECTED</option>
+                        <option>CUSTOM</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Color</label>
+                      <div className="grid grid-cols-4 gap-2">
+                        {['#000000', '#ef4444', '#166534', '#2563eb'].map((c) => (
+                          <button
+                            key={c}
+                            type="button"
+                            onClick={() => setStampBuilder(prev => ({ ...prev, color: c }))}
+                            className={`w-10 h-10 rounded-lg border-2 ${stampBuilder.color === c ? 'border-blue-500' : 'border-gray-300'} hover:scale-105 transition-transform`}
+                            style={{ backgroundColor: c }}
+                            aria-label={`Choose ${c}`}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs text-gray-600">Border</label>
+                      <span className="text-xs text-gray-500">{stampBuilder.strokeWidth}px</span>
+                    </div>
+                    <input type="range" min="1" max="6" step="1" value={stampBuilder.strokeWidth} onChange={e => setStampBuilder(prev => ({ ...prev, strokeWidth: parseInt(e.target.value || '2') }))} className="w-full" />
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs text-gray-600">Text Size</label>
+                      <span className="text-xs text-gray-500">{stampBuilder.fontSize}px</span>
+                    </div>
+                    <input type="range" min="8" max={fitFontSize(96)} step="1" value={stampBuilder.fontSize} onChange={e => setStampBuilder(prev => ({ ...prev, fontSize: fitFontSize(parseInt(e.target.value || '14')) }))} className="w-full" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">Logo</label>
+                    <div className="flex items-center gap-3">
+                      <label className="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
+                        <input type="checkbox" className="rounded" checked={!!stampBuilder.useCompanyLogo} onChange={(e) => setStampBuilder(prev => ({ ...prev, useCompanyLogo: e.target.checked }))} />
+                        Use company logo
+                      </label>
+                      <span className="text-xs text-gray-500">(we'll wire this later)</span>
+                    </div>
+                  </div>
+                  <div className="mt-2">
+                    <div className="text-xs text-gray-600 mb-2">Preview</div>
+                    <div ref={previewRef} className="h-28 rounded-lg border-2 flex items-center justify-center max-w-md text-center px-2" style={{ borderColor: stampBuilder.color, borderWidth: stampBuilder.strokeWidth }}>
+                      <div className="font-semibold whitespace-pre-line" style={{ color: stampBuilder.color, fontSize: `${stampBuilder.fontSize}px` }}>{stampBuilder.title || 'Custom text'}</div>
+                    </div>
+                    <div className="flex items-center justify-end mt-3 gap-2">
+                      <button onClick={() => setShowStampModal(false)} className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200">Close</button>
+                      <button onClick={() => {
+                        setCustomPresets(prev => [...prev, { title: stampBuilder.title || 'Custom text', status: stampBuilder.status, color: stampBuilder.color, opacity: 1, strokeWidth: stampBuilder.strokeWidth, fontSize: stampBuilder.fontSize, useCompanyLogo: stampBuilder.useCompanyLogo }]);
+                        setPresetTab('custom');
+                      }} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">Save</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>

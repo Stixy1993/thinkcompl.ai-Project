@@ -36,6 +36,7 @@ interface PDFViewerV2Props {
   }) => void;
   onToolChange?: (tool: MarkupTool) => void;
   onSyncToolProperties?: (props: any, tool: MarkupTool) => void;
+  stampTemplate?: { title: string; status?: 'APPROVED' | 'AS-BUILT' | 'REJECTED' | 'CUSTOM'; color?: string; opacity?: number; strokeWidth?: number; logoUrl?: string; fontSize?: number } | null;
 }
 
 export default function PDFViewerV2({
@@ -46,7 +47,8 @@ export default function PDFViewerV2({
   toolPropsVersion,
   onPDFControlsChange,
   onToolChange,
-  onSyncToolProperties
+  onSyncToolProperties,
+  stampTemplate
 }: PDFViewerV2Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -69,6 +71,7 @@ export default function PDFViewerV2({
   type TextBox = { x: number; y: number; w: number; h: number; text: string; color: string; fontSize: number; opacity: number; strokeWidth: number; fontWeight?: number; fontStyle?: 'normal' | 'italic'; textDecoration?: 'none' | 'underline'; textAlign?: 'left' | 'center' | 'right'; borderEnabled?: boolean; borderWidth?: number; baseW?: number; baseH?: number };
   type Callout = { x: number; y: number; w: number; h: number; text: string; color: string; fontSize: number; opacity: number; strokeWidth: number; anchorX: number; anchorY: number; fontWeight?: number; fontStyle?: 'normal' | 'italic'; textDecoration?: 'none' | 'underline'; textAlign?: 'left' | 'center' | 'right'; baseW?: number; baseH?: number };
   type Cloud = { x: number; y: number; w: number; h: number; color: string; strokeWidth: number; opacity: number; scallopSize: number };
+  type Stamp = { x: number; y: number; w: number; h: number; title: string; status: 'APPROVED' | 'AS-BUILT' | 'REJECTED' | 'CUSTOM'; company?: string; author?: string; date?: string; color: string; opacity: number; strokeWidth: number; logoUrl?: string; fontSize?: number };
   const [freehands, setFreehands] = useState<FreehandPath[]>([]);
   const [rects, setRects] = useState<Rect[]>([]);
   const [circles, setCircles] = useState<Circle[]>([]);
@@ -76,6 +79,12 @@ export default function PDFViewerV2({
   const [texts, setTexts] = useState<TextBox[]>([]);
   const [callouts, setCallouts] = useState<Callout[]>([]);
   const [clouds, setClouds] = useState<Cloud[]>([]);
+  const [stamps, setStamps] = useState<Stamp[]>([]);
+  const stampsRef = useRef<Stamp[]>([]);
+  useEffect(() => { stampsRef.current = stamps; }, [stamps]);
+  const stampTemplateRef = useRef<typeof stampTemplate>(null);
+  useEffect(() => { stampTemplateRef.current = stampTemplate; }, [stampTemplate]);
+  const movingStampRef = useRef<{ index: number; dx: number; dy: number } | null>(null);
   const drawingRef = useRef<FreehandPath | Rect | Circle | Arrow | TextBox | Callout | Cloud | null>(null);
   const renderingRef = useRef<Promise<void> | null>(null);
   const movingCalloutRef = useRef<{ index: number; dx: number; dy: number } | null>(null);
@@ -85,6 +94,9 @@ export default function PDFViewerV2({
   const [selectedText, setSelectedText] = useState<number | null>(null);
   const [selectedCallout, setSelectedCallout] = useState<number | null>(null);
   const [selectedArrow, setSelectedArrow] = useState<number | null>(null);
+  const [selectedStamp, setSelectedStamp] = useState<number | null>(null);
+  const selectedStampRef = useRef<number | null>(null);
+  useEffect(() => { selectedStampRef.current = selectedStamp; }, [selectedStamp]);
   const movingRectRef = useRef<{ index: number; dx: number; dy: number } | null>(null);
   const resizingRectRef = useRef<{ index: number; anchor: 'nw' | 'ne' | 'sw' | 'se' | 'n' | 'e' | 's' | 'w' } | null>(null);
   const movingCloudRef = useRef<{ index: number; dx: number; dy: number } | null>(null);
@@ -98,7 +110,8 @@ export default function PDFViewerV2({
   const resizingCalloutRef = useRef<{ index: number; anchor: 'nw' | 'ne' | 'sw' | 'se' | 'n' | 'e' | 's' | 'w' } | null>(null);
   const movingArrowRef = useRef<{ index: number; dx: number; dy: number } | null>(null);
   const resizingArrowRef = useRef<{ index: number; end: 'start' | 'end' } | null>(null);
-  const [activeEditor, setActiveEditor] = useState<{ kind: 'text' | 'callout'; index: number } | null>(null);
+  const resizingStampRef = useRef<{ index: number; anchor: 'nw' | 'ne' | 'sw' | 'se' | 'n' | 'e' | 's' | 'w' } | null>(null);
+  const [activeEditor, setActiveEditor] = useState<{ kind: 'text' | 'callout' | 'stamp'; index: number } | null>(null);
   const [editorValue, setEditorValue] = useState<string>("");
   const skipApplyRef = useRef<{ text: boolean; callout: boolean }>({ text: false, callout: false });
 
@@ -331,6 +344,19 @@ export default function PDFViewerV2({
       ctx.globalAlpha = 1;
     }
 
+    // Live stamp rectangle while dragging
+    if (live && live.kind === 'stamp') {
+      const x = (live.w >= 0 ? live.x : live.x + live.w) * scale;
+      const y = (live.h >= 0 ? live.y : live.y + live.h) * scale;
+      const w = Math.max(40, Math.abs(live.w) * scale);
+      const h = Math.max(24, Math.abs(live.h) * scale);
+      ctx.setLineDash([6, 4]);
+      ctx.strokeStyle = live.color || '#ef4444';
+      ctx.lineWidth = (live.strokeWidth || 2);
+      ctx.strokeRect(x, y, w, h);
+      ctx.setLineDash([]);
+    }
+
     // Rectangles (normalize negative width/height so they don't disappear)
     // Rectangles (per-shape styling)
     rects.forEach(r => {
@@ -344,6 +370,79 @@ export default function PDFViewerV2({
       ctx.strokeRect(x * scale, y * scale, w * scale, h * scale);
       ctx.globalAlpha = 1;
     });
+
+    // Stamps (rounded rectangle card with header/title)
+    const drawStamp = (s: Stamp) => {
+      const x = s.x * scale, y = s.y * scale, w = Math.max(50, s.w) * scale, h = Math.max(30, s.h) * scale;
+      const r = 10 * scale;
+      ctx.globalAlpha = s.opacity ?? 1;
+      ctx.strokeStyle = s.color || '#ef4444';
+      ctx.lineWidth = s.strokeWidth || 2;
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.stroke();
+      // Title with word wrapping, centered both axes
+      const fontPx = ((s.fontSize ?? 14) * scale);
+      ctx.font = `${fontPx}px Arial`;
+      ctx.fillStyle = s.color || '#ef4444';
+      const padding = 12 * scale;
+      const maxTextWidth = Math.max(10, w - padding * 2);
+      const wrap = (text: string, maxWidth: number): string[] => {
+        if (!text) return [];
+        const tokens = text.split(/(\s+)/); // keep spaces for nicer wrapping
+        const lines: string[] = [];
+        let line = '';
+        for (const tk of tokens) {
+          const test = line + tk;
+          if (ctx.measureText(test).width <= maxWidth || line.length === 0) {
+            line = test;
+          } else {
+            lines.push(line.trimEnd());
+            line = tk.trimStart();
+          }
+        }
+        if (line) lines.push(line.trimEnd());
+        return lines;
+      };
+      const lines = wrap(s.title || '', maxTextWidth);
+      const totalHeight = lines.length * fontPx;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      const startY = y + (h - totalHeight) / 2;
+      for (let i = 0; i < lines.length; i++) {
+        ctx.fillText(lines[i], x + w / 2, startY + i * fontPx);
+      }
+      ctx.textAlign = 'start';
+      ctx.globalAlpha = 1;
+
+      // Selection handles when selected
+      if (selectedStampRef.current !== null && (stampsRef.current[selectedStampRef.current] === s)) {
+        const hw = 6;
+        const drawHandleCircle = (cx: number, cy: number, radius = hw) => {
+          ctx.beginPath();
+          ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+          ctx.fillStyle = '#ffffff';
+          ctx.fill();
+          ctx.strokeStyle = '#3b82f6';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        };
+        drawHandleCircle(x, y, hw);
+        drawHandleCircle(x + w, y, hw);
+        drawHandleCircle(x, y + h, hw);
+        drawHandleCircle(x + w, y + h, hw);
+        // Edge handles (N, E, S, W)
+        drawHandleCircle(x + w / 2, y, hw);
+        drawHandleCircle(x + w, y + h / 2, hw);
+        drawHandleCircle(x + w / 2, y + h, hw);
+        drawHandleCircle(x, y + h / 2, hw);
+      }
+    };
+    (stampsRef.current || []).forEach(drawStamp);
 
     // Circles
     // Circles (per-shape styling)
@@ -1245,6 +1344,71 @@ export default function PDFViewerV2({
         // Otherwise, start creating a new cloud
         drawingRef.current = { x: p.x, y: p.y, w: 0, h: 0, color: coercedProps.color, strokeWidth: cloudStrokeWidth, opacity: coercedProps.opacity, scallopSize: cloudScallopSize } as Cloud; interactionChangedRef.current = true;
         setSelectedCloud(null); // don't show handles during initial drag
+      } else if (activeTool === 'stamp') {
+        const p = getLocalPoint(e);
+        // Hit-test existing stamps for move/resize (use ref to avoid stale state)
+        const allStamps = stampsRef.current || [];
+        for (let i = allStamps.length - 1; i >= 0; i--) {
+          const s = allStamps[i];
+          const x = s.w >= 0 ? s.x : s.x + s.w;
+          const y = s.h >= 0 ? s.y : s.y + s.h;
+          const w = Math.max(50, Math.abs(s.w));
+          const h = Math.max(30, Math.abs(s.h));
+          const handle = 8 / scale;
+          const inside = p.x >= x && p.x <= x + w && p.y >= y && p.y <= y + h;
+          if (!inside) continue;
+          setSelectedStamp(i);
+          // Corner handles
+          if (Math.hypot(p.x - x, p.y - y) <= handle) { resizingStampRef.current = { index: i, anchor: 'nw' }; return; }
+          if (Math.hypot(p.x - (x + w), p.y - y) <= handle) { resizingStampRef.current = { index: i, anchor: 'ne' }; return; }
+          if (Math.hypot(p.x - x, p.y - (y + h)) <= handle) { resizingStampRef.current = { index: i, anchor: 'sw' }; return; }
+          if (Math.hypot(p.x - (x + w), p.y - (y + h)) <= handle) { resizingStampRef.current = { index: i, anchor: 'se' }; return; }
+          // Edge handles
+          if (Math.abs(p.y - y) <= handle) { resizingStampRef.current = { index: i, anchor: 'n' }; return; }
+          if (Math.abs(p.x - (x + w)) <= handle) { resizingStampRef.current = { index: i, anchor: 'e' }; return; }
+          if (Math.abs(p.y - (y + h)) <= handle) { resizingStampRef.current = { index: i, anchor: 's' }; return; }
+          if (Math.abs(p.x - x) <= handle) { resizingStampRef.current = { index: i, anchor: 'w' }; return; }
+          // If clicked inside but not on handles: move the stamp (unless Shift is held to force new placement)
+          if (!(e as any).shiftKey) {
+            movingStampRef.current = { index: i, dx: p.x - x, dy: p.y - y } as any;
+            return;
+          }
+          // If Shift is held, allow placing a new stamp on top (fall through)
+          break;
+        }
+        // If we didn't click an existing stamp: Place default-sized stamp on click (autosize to fit text)
+        const tpl = stampTemplateRef.current || { title: 'AS-BUILT', status: 'AS-BUILT', color: '#ef4444', opacity: 1, strokeWidth: 2, fontSize: 14 };
+        // Compute size using the same baseline as default stamps (14px font),
+        // so custom-built stamps place with the same dimensions
+        const baseFontPx = 14 * scale;
+        let contentWidthPx = 0;
+        try {
+          const off = document.createElement('canvas').getContext('2d');
+          if (off) { off.font = `${baseFontPx}px Arial`; contentWidthPx = off.measureText(tpl.title || '').width; }
+        } catch {}
+        const paddingPx = 24 * scale; // left+right
+        const minWidthPx = 140 * scale;
+        const maxWidthPx = 240 * scale;
+        const minHeightPx = 44 * scale;
+        const maxHeightPx = 80 * scale;
+        const desiredWidthPx = Math.min(maxWidthPx, Math.max(minWidthPx, contentWidthPx + paddingPx));
+        const desiredHeightPx = Math.min(maxHeightPx, Math.max(minHeightPx, baseFontPx * 2.0));
+        const defaultW = desiredWidthPx / scale;
+        const defaultH = desiredHeightPx / scale;
+        setStamps(prev => {
+          const idx = prev.length;
+          const next = [...prev, { x: p.x, y: p.y, w: defaultW, h: defaultH, title: tpl.title, status: (tpl.status as any) || 'CUSTOM', color: tpl.color || '#ef4444', opacity: tpl.opacity ?? 1, strokeWidth: tpl.strokeWidth ?? 2, logoUrl: tpl.logoUrl } as Stamp];
+          stampsRef.current = next;
+          setSelectedStamp(idx);
+          selectedStampRef.current = idx;
+          return next;
+        });
+        drawingRef.current = null;
+        interactionChangedRef.current = true;
+        // Defer redraw until after state commit using microtask + rAF
+        Promise.resolve().then(() => requestAnimationFrame(() => drawOverlay()));
+        // Push to history timeline
+        Promise.resolve().then(() => commitInteraction());
       } else if (activeTool === 'select') {
         // Pan only in select mode
         isPanningRef.current = true;
@@ -1593,6 +1757,17 @@ export default function PDFViewerV2({
         const local = { x: (e.clientX - rect.left) / scale, y: (e.clientY - rect.top) / scale };
         const { index, dx, dy } = movingCalloutBoxRef.current;
         setCallouts(prev => prev.map((c, i) => i === index ? { ...c, x: local.x - dx, y: local.y - dy } : c));
+      } else if (movingStampRef.current) {
+        const overlay = overlayRef.current!;
+        const rect = overlay.getBoundingClientRect();
+        const local = { x: (e.clientX - rect.left) / scale, y: (e.clientY - rect.top) / scale };
+        const { index, dx, dy } = movingStampRef.current;
+        setStamps(prev => {
+          const next = prev.map((s, i) => i === index ? { ...s, x: local.x - dx, y: local.y - dy } : s);
+          stampsRef.current = next;
+          return next;
+        });
+        drawOverlay();
       } else if (resizingArrowRef.current) {
         const overlay = overlayRef.current!;
         const rect = overlay.getBoundingClientRect();
@@ -1608,6 +1783,34 @@ export default function PDFViewerV2({
         const local = { x: (e.clientX - rect.left) / scale, y: (e.clientY - rect.top) / scale };
         const { index, dx, dy } = movingArrowRef.current;
         setArrows(prev => prev.map((a, i) => i === index ? { ...a, x1: local.x - dx, y1: local.y - dy, x2: (local.x - dx) + (a.x2 - a.x1), y2: (local.y - dy) + (a.y2 - a.y1) } : a));
+      } else if (resizingStampRef.current) {
+        const overlay = overlayRef.current!;
+        const rect = overlay.getBoundingClientRect();
+        const local = { x: (e.clientX - rect.left) / scale, y: (e.clientY - rect.top) / scale };
+        const { index, anchor } = resizingStampRef.current;
+        setStamps(prev => {
+          const next = prev.map((s, i) => {
+            if (i !== index) return s;
+            const x0 = s.w >= 0 ? s.x : s.x + s.w;
+            const y0 = s.h >= 0 ? s.y : s.y + s.h;
+            const w0 = Math.max(50, Math.abs(s.w));
+            const h0 = Math.max(30, Math.abs(s.h));
+            let x = x0, y = y0, w = w0, h = h0;
+            if (anchor === 'nw') { w = (x0 + w0) - local.x; h = (y0 + h0) - local.y; x = local.x; y = local.y; }
+            else if (anchor === 'ne') { w = local.x - x0; h = (y0 + h0) - local.y; y = local.y; }
+            else if (anchor === 'sw') { w = (x0 + w0) - local.x; h = local.y - y0; x = local.x; }
+            else if (anchor === 'se') { w = local.x - x0; h = local.y - y0; }
+            else if (anchor === 'n') { h = (y0 + h0) - local.y; y = local.y; }
+            else if (anchor === 'e') { w = local.x - x0; }
+            else if (anchor === 's') { h = local.y - y0; }
+            else if (anchor === 'w') { w = (x0 + w0) - local.x; x = local.x; }
+            interactionChangedRef.current = true;
+            return { ...s, x, y, w, h };
+          });
+          stampsRef.current = next;
+          return next;
+        });
+        drawOverlay();
       } else if (resizingCloudRef.current) {
         const overlay = overlayRef.current!;
         const rect = overlay.getBoundingClientRect();
@@ -1732,6 +1935,30 @@ export default function PDFViewerV2({
               setSelectedCloud(next.length - 1);
               return next;
             });
+          } else if (anyRef.kind === 'stamp') {
+            const s = anyRef as Stamp;
+            const normalized: Stamp = {
+              x: s.w >= 0 ? s.x : s.x + s.w,
+              y: s.h >= 0 ? s.y : s.y + s.h,
+              w: Math.max(80, Math.abs(s.w)),
+              h: Math.max(40, Math.abs(s.h)),
+              title: s.title,
+              status: s.status,
+              company: s.company,
+              author: s.author,
+              date: s.date,
+              color: s.color,
+              opacity: s.opacity,
+              strokeWidth: s.strokeWidth,
+              logoUrl: s.logoUrl
+            };
+            setStamps(prev => {
+              const idx = prev.length;
+              const next = [...prev, normalized];
+              setSelectedStamp(idx);
+              return next;
+            });
+            drawOverlay();
           } else if (typeof (anyRef as Rect).w === 'number' && typeof (anyRef as Rect).h === 'number') {
             const r = anyRef as Rect;
             const normalized = {
@@ -1758,6 +1985,7 @@ export default function PDFViewerV2({
       panStartRef.current = null;
       movingCalloutRef.current = null;
       movingCalloutBoxRef.current = null;
+      movingStampRef.current = null;
       resizingCalloutRef.current = null;
       movingRectRef.current = null;
       resizingRectRef.current = null;
@@ -1769,6 +1997,7 @@ export default function PDFViewerV2({
       movingTextRef.current = null;
       movingCloudRef.current = null;
       resizingCloudRef.current = null;
+      resizingStampRef.current = null;
       drawOverlay();
       commitInteraction();
     };

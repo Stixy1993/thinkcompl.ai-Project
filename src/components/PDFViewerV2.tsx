@@ -15,6 +15,10 @@ interface PDFViewerV2Props {
     fontSize?: number;
     scallopSize?: number;
     cloudLineThickness?: number;
+    fontWeight?: number;
+    fontStyle?: 'normal' | 'italic';
+    textDecoration?: 'none' | 'underline';
+    textAlign?: 'left' | 'center' | 'right';
   };
   toolPropsVersion?: number;
   onPDFControlsChange?: (controls: {
@@ -62,8 +66,8 @@ export default function PDFViewerV2({
   type Rect = { x: number; y: number; w: number; h: number; color: string; strokeWidth: number; opacity: number };
   type Circle = { x: number; y: number; r: number; color: string; strokeWidth: number; opacity: number };
   type Arrow = { x1: number; y1: number; x2: number; y2: number; color: string; strokeWidth: number; opacity: number };
-  type TextBox = { x: number; y: number; w: number; h: number; text: string; color: string; fontSize: number; opacity: number; strokeWidth: number };
-  type Callout = { x: number; y: number; w: number; h: number; text: string; color: string; fontSize: number; opacity: number; strokeWidth: number; anchorX: number; anchorY: number };
+  type TextBox = { x: number; y: number; w: number; h: number; text: string; color: string; fontSize: number; opacity: number; strokeWidth: number; fontWeight?: number; fontStyle?: 'normal' | 'italic'; textDecoration?: 'none' | 'underline'; textAlign?: 'left' | 'center' | 'right'; borderEnabled?: boolean; borderWidth?: number; baseW?: number; baseH?: number };
+  type Callout = { x: number; y: number; w: number; h: number; text: string; color: string; fontSize: number; opacity: number; strokeWidth: number; anchorX: number; anchorY: number; fontWeight?: number; fontStyle?: 'normal' | 'italic'; textDecoration?: 'none' | 'underline'; textAlign?: 'left' | 'center' | 'right'; baseW?: number; baseH?: number };
   type Cloud = { x: number; y: number; w: number; h: number; color: string; strokeWidth: number; opacity: number; scallopSize: number };
   const [freehands, setFreehands] = useState<FreehandPath[]>([]);
   const [rects, setRects] = useState<Rect[]>([]);
@@ -96,13 +100,78 @@ export default function PDFViewerV2({
   const resizingArrowRef = useRef<{ index: number; end: 'start' | 'end' } | null>(null);
   const [activeEditor, setActiveEditor] = useState<{ kind: 'text' | 'callout'; index: number } | null>(null);
   const [editorValue, setEditorValue] = useState<string>("");
+  const skipApplyRef = useRef<{ text: boolean; callout: boolean }>({ text: false, callout: false });
+
+  // History timeline (single array + index)
+  type Snapshot = { freehands: FreehandPath[]; rects: Rect[]; circles: Circle[]; arrows: Arrow[]; texts: TextBox[]; callouts: Callout[]; clouds: Cloud[] };
+  const historyRef = useRef<Snapshot[]>([]);
+  const historyIndexRef = useRef<number>(-1);
+  const interactionChangedRef = useRef<boolean>(false);
+  const historyInitializedRef = useRef<boolean>(false);
+  const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
+  const takeSnapshot = (): Snapshot => ({
+    freehands: clone(freehands), rects: clone(rects), circles: clone(circles), arrows: clone(arrows), texts: clone(texts), callouts: clone(callouts), clouds: clone(clouds)
+  });
+  const ensureHistoryInitialized = () => {
+    if (historyInitializedRef.current) return;
+    const initial = takeSnapshot();
+    historyRef.current = [initial];
+    historyIndexRef.current = 0;
+    historyInitializedRef.current = true;
+  };
+  const beginInteraction = () => {
+    ensureHistoryInitialized();
+    interactionChangedRef.current = false;
+  };
+  const commitNow = () => {
+    ensureHistoryInitialized();
+    const after = takeSnapshot();
+    const last = historyRef.current[historyIndexRef.current];
+    const same = JSON.stringify(after) === JSON.stringify(last);
+    if (same) { interactionChangedRef.current = false; return; }
+    historyRef.current = historyRef.current.slice(0, historyIndexRef.current + 1);
+    historyRef.current.push(after);
+    historyIndexRef.current = historyRef.current.length - 1;
+    interactionChangedRef.current = false;
+  };
+  const commitInteraction = () => { commitNow(); };
+  const applySnapshot = (s: Snapshot) => {
+    setFreehands(clone(s.freehands));
+    setRects(clone(s.rects));
+    setCircles(clone(s.circles));
+    setArrows(clone(s.arrows));
+    setTexts(clone(s.texts));
+    setCallouts(clone(s.callouts));
+    setClouds(clone(s.clouds));
+    setSelectedRect(null); setSelectedCircle(null); setSelectedText(null); setSelectedCallout(null); setSelectedArrow(null); setSelectedCloud(null);
+    setActiveEditor(null);
+    drawOverlay();
+  };
+  const undo = () => {
+    ensureHistoryInitialized();
+    if (historyIndexRef.current <= 0) return;
+    historyIndexRef.current -= 1;
+    applySnapshot(historyRef.current[historyIndexRef.current]);
+  };
+  const redo = () => {
+    ensureHistoryInitialized();
+    if (historyIndexRef.current >= historyRef.current.length - 1) return;
+    historyIndexRef.current += 1;
+    applySnapshot(historyRef.current[historyIndexRef.current]);
+  };
 
   // Coerced tool properties with defaults
   const coercedProps = {
     color: toolProperties?.color || '#ff0000',
     strokeWidth: Math.max(1, toolProperties?.strokeWidth || 2),
     opacity: toolProperties?.opacity ?? 1,
-    fontSize: Math.max(8, toolProperties?.fontSize || 14)
+    fontSize: Math.max(8, toolProperties?.fontSize || 14),
+    fontWeight: toolProperties?.fontWeight || 300,
+    fontStyle: toolProperties?.fontStyle || 'normal',
+    textDecoration: toolProperties?.textDecoration || 'none',
+    textAlign: toolProperties?.textAlign || 'left',
+    textBorder: (toolProperties as any)?.textBorder ?? true,
+    textBoxLineThickness: (toolProperties as any)?.textBoxLineThickness ?? 1.5
   };
   const cloudStrokeWidth = Math.max(1, (toolProperties?.cloudLineThickness ?? toolProperties?.strokeWidth ?? 2));
   const cloudScallopSize = Math.max(4, toolProperties?.scallopSize ?? 8);
@@ -119,8 +188,8 @@ export default function PDFViewerV2({
       zoomIn: () => setScale(s => Math.min(3, s * 1.25)),
       zoomOut: () => setScale(s => Math.max(0.25, s * 0.8)),
       resetZoom: () => setScale(1),
-      undo: () => {},
-      redo: () => {},
+      undo,
+      redo,
       activeTool
     });
     // Intentionally exclude onPDFControlsChange from deps to avoid loops when parent
@@ -241,6 +310,27 @@ export default function PDFViewerV2({
       ctx.globalAlpha = 1;
     });
 
+    // Live freehand stroke (during drag)
+    const live = drawingRef.current as any;
+    if (live && Array.isArray(live.points) && live.points.length >= 1) {
+      ctx.strokeStyle = live.color || '#ff0000';
+      ctx.globalAlpha = live.opacity ?? 1;
+      ctx.lineWidth = live.strokeWidth || 2;
+      const start = toDevice(live.points[0]);
+      ctx.beginPath();
+      ctx.moveTo(start.x, start.y);
+      for (let i = 1; i < live.points.length; i++) {
+        const pt = toDevice(live.points[i]);
+        ctx.lineTo(pt.x, pt.y);
+      }
+      // If only a single point, draw a tiny dot
+      if (live.points.length === 1) {
+        ctx.lineTo(start.x + 0.01, start.y + 0.01);
+      }
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
     // Rectangles (normalize negative width/height so they don't disappear)
     // Rectangles (per-shape styling)
     rects.forEach(r => {
@@ -314,30 +404,8 @@ export default function PDFViewerV2({
       return out;
     };
 
-    // Text boxes (per-shape styling)
-    texts.forEach((t, i) => {
-      ctx.font = `${(t.fontSize || 14) * scale}px Arial`;
-      ctx.fillStyle = t.color || '#111827';
-      ctx.globalAlpha = (t.opacity ?? 1);
-      const x = t.w >= 0 ? t.x : t.x + t.w;
-      const y = t.h >= 0 ? t.y : t.y + t.h;
-      const w = Math.max(20, Math.abs(t.w));
-      const h = Math.max(16, Math.abs(t.h));
-      const padding = 6 * scale;
-      // If editing this text, skip drawing the canvas text so the textarea isn't doubled
-      const isEditing = activeEditor?.kind === 'text' && activeEditor.index === i;
-      if (!isEditing) {
-        const content = (t.text && t.text !== 'Type text here') ? t.text : '';
-        if (content) {
-          const maxWidth = (w * scale) - padding * 2;
-          const lines = wrapLines(content, maxWidth, `${(t.fontSize || 14) * scale}px Arial`);
-          for (let li = 0; li < lines.length; li++) {
-            ctx.fillText(lines[li], x * scale + padding, y * scale + padding + (li + 1) * (t.fontSize * scale));
-          }
-        }
-      }
-      ctx.globalAlpha = 1;
-    });
+    // Text boxes (rendered via DOM for crispness) — do not draw canvas text
+    texts.forEach(() => {});
 
     // Callouts (filled box + directional pointer triangle + text)
     const drawCallout = (c: Callout, opts?: { showText?: boolean }) => {
@@ -400,7 +468,8 @@ export default function PDFViewerV2({
       }
       ctx.globalAlpha = 1;
     };
-    callouts.forEach((c, i) => drawCallout(c, { showText: !(activeEditor?.kind === 'callout' && activeEditor.index === i) }));
+    // Callout boxes drawn on canvas (arrow + box), but text is rendered via DOM
+    callouts.forEach((c) => drawCallout(c, { showText: false }));
 
     // Helper: minimal circular handle
     const drawHandle = (cx: number, cy: number, radius = 5) => {
@@ -610,15 +679,27 @@ export default function PDFViewerV2({
           ctx.strokeStyle = box.color;
           ctx.lineWidth = box.strokeWidth;
           ctx.stroke();
-          // Preview text
+          // Preview text with wrapping
           const padding = 8 * scale;
           ctx.font = `${box.fontSize * scale}px Arial`;
+          ctx.textBaseline = 'top';
+          ctx.textAlign = 'left';
           ctx.fillStyle = '#111827';
-          ctx.fillText(box.text, left + padding, top + padding + box.fontSize * scale, width - padding * 2);
+          if (box.text) {
+            const maxW = width - padding * 2;
+            const lines = wrapLines(box.text, maxW, `${box.fontSize * scale}px Arial`);
+            for (let li = 0; li < lines.length; li++) {
+              const tx = Math.round(left + padding);
+              const ty = Math.round(top + padding + li * (box.fontSize * scale));
+              ctx.fillText(lines[li], tx, ty);
+            }
+          }
           ctx.globalAlpha = 1;
         } else if (anyRef.kind === 'text') {
           const t = anyRef as TextBox;
           ctx.font = `${coercedProps.fontSize * scale}px Arial`;
+          ctx.textBaseline = 'top';
+          ctx.textAlign = 'left';
           ctx.fillStyle = coercedProps.color;
           const x = t.w >= 0 ? t.x : t.x + t.w;
           const y = t.h >= 0 ? t.y : t.y + t.h;
@@ -631,25 +712,39 @@ export default function PDFViewerV2({
           ctx.setLineDash([]);
           const padding = 6 * scale;
           if (t.text) {
-            ctx.fillText(t.text, x * scale + padding, y * scale + coercedProps.fontSize * scale + padding / 2, (w * scale) - padding * 2);
+            const maxW = (w * scale) - padding * 2;
+            const lines = wrapLines(t.text, maxW, `${coercedProps.fontSize * scale}px Arial`);
+            for (let li = 0; li < lines.length; li++) {
+              const tx = Math.round(x * scale + padding);
+              const ty = Math.round(y * scale + padding + li * (coercedProps.fontSize * scale));
+              ctx.fillText(lines[li], tx, ty);
+            }
           }
         } else if ((anyRef as Callout).anchorX !== undefined) {
           drawCallout({ ...(anyRef as Callout) });
         } else if ((anyRef as TextBox).text !== undefined) {
           const t = anyRef as TextBox;
           ctx.font = `${coercedProps.fontSize * scale}px Arial`;
+          ctx.textBaseline = 'top';
+          ctx.textAlign = 'left';
           ctx.fillStyle = coercedProps.color;
           const x = t.w >= 0 ? t.x : t.x + t.w;
           const y = t.h >= 0 ? t.y : t.y + t.h;
           const w = Math.max(20, Math.abs(t.w));
           const h = Math.max(16, Math.abs(t.h));
-          ctx.setLineDash([4, 3]);
+          // draw solid border box during live drag to match final look
           ctx.strokeStyle = coercedProps.color;
-          ctx.lineWidth = 1;
+          ctx.lineWidth = (t.borderWidth ?? 1.5) * scale;
           ctx.strokeRect(x * scale, y * scale, w * scale, h * scale);
-          ctx.setLineDash([]);
           const padding = 6 * scale;
-          ctx.fillText(t.text || 'Text', x * scale + padding, y * scale + coercedProps.fontSize * scale + padding / 2, (w * scale) - padding * 2);
+          const text = t.text || 'Text';
+          const maxW = (w * scale) - padding * 2;
+          const lines = wrapLines(text, maxW, `${coercedProps.fontSize * scale}px Arial`);
+          for (let li = 0; li < lines.length; li++) {
+            const tx = Math.round(x * scale + padding);
+            const ty = Math.round(y * scale + padding + li * (coercedProps.fontSize * scale));
+            ctx.fillText(lines[li], tx, ty);
+          }
         } else if (anyRef.kind === 'calloutLeader') {
           // Live leader line with arrow head; keep visible while dragging
           const a = anyRef as { sx: number; sy: number; ex: number; ey: number; color: string; strokeWidth: number; opacity: number };
@@ -808,35 +903,140 @@ export default function PDFViewerV2({
 
   // Apply text box properties
   useEffect(() => {
-    if (activeTool !== 'text') return;
-    if (selectedText === null) return;
+    if (skipApplyRef.current.text) { skipApplyRef.current.text = false; return; }
+    if (selectedText === null) return; // apply whenever a text box is selected, regardless of tool
     const targetIndex = selectedText;
     if (targetIndex === null) return;
     const nextOpacity = coercedProps.opacity > 1 ? coercedProps.opacity / 100 : (coercedProps.opacity ?? 1);
-    setTexts(prev => prev.map((t, i) => i === targetIndex ? {
-      ...t,
-      color: coercedProps.color,
-      fontSize: coercedProps.fontSize,
-      opacity: Math.max(0, Math.min(1, nextOpacity)),
-      strokeWidth: coercedProps.strokeWidth
-    } : t));
-  }, [coercedProps.color, coercedProps.fontSize, coercedProps.strokeWidth, coercedProps.opacity, activeTool]);
+    setTexts(prev => prev.map((t, i) => {
+      if (i !== targetIndex) return t;
+      const updated = {
+        ...t,
+        color: coercedProps.color,
+        fontSize: coercedProps.fontSize,
+        fontWeight: coercedProps.fontWeight,
+        fontStyle: coercedProps.fontStyle,
+        textDecoration: coercedProps.textDecoration,
+        textAlign: coercedProps.textAlign,
+        borderEnabled: coercedProps.textBorder,
+        borderWidth: coercedProps.textBoxLineThickness,
+        opacity: Math.max(0, Math.min(1, nextOpacity)),
+        strokeWidth: coercedProps.strokeWidth
+      } as TextBox;
+      // Keep inner width/height stable across border thickness changes and auto-expand when content requires
+      const off = document.createElement('canvas').getContext('2d');
+      if (off) {
+        const prevPadPx = 8 * scale + (t.borderEnabled ? ((t.borderWidth || 1.5) * scale) : 0);
+        const padPx = 8 * scale + (updated.borderEnabled ? ((updated.borderWidth || 1.5) * scale) : 0);
+        const fontPx = updated.fontSize * scale;
+        const lineHeightPx = fontPx + 2;
+        // Inner dimensions before change
+        const prevOuterWpx = Math.max(20, (t.baseW ?? Math.abs(t.w))) * scale;
+        const prevOuterHpx = Math.max(16, Math.abs(t.h)) * scale;
+        let widthPx = prevOuterWpx - prevPadPx * 2;
+        off.font = `${updated.fontStyle || 'normal'} ${updated.fontWeight || 300} ${fontPx}px Arial`;
+        const wrap = (text: string, maxW: number) => {
+          const segments = (text || '').split(/\r?\n/);
+          const out: string[] = [];
+          let maxLineWidth = 0;
+          for (const seg of segments) {
+            const tokens = seg.split(/(\s+)/);
+            let line = '';
+            for (const tk of tokens) {
+              const test = line + tk;
+              const testWidth = off.measureText(test).width;
+              if (testWidth <= maxW || line.length === 0) { line = test; maxLineWidth = Math.max(maxLineWidth, testWidth); }
+              else { out.push(line.trimEnd()); maxLineWidth = Math.max(maxLineWidth, off.measureText(line).width); line = tk.trimStart(); }
+            }
+            out.push(line.trimEnd());
+            maxLineWidth = Math.max(maxLineWidth, off.measureText(line).width);
+          }
+          return { lines: out, maxLineWidth } as { lines: string[]; maxLineWidth: number };
+        };
+        const { lines, maxLineWidth } = wrap(updated.text, widthPx);
+        const desiredInnerWidth = Math.ceil(Math.max(widthPx, maxLineWidth)) + 2; // small safety pad
+        // Compute target inner width (keep current unless content needs more)
+        // Allow shrink down to the stored base inner width
+        const baseInnerPx = Math.max(20, (t.baseW ?? Math.abs(t.w))) * scale - prevPadPx * 2;
+        const targetInnerWidth = Math.max(baseInnerPx, Math.min(desiredInnerWidth, Math.max(widthPx, desiredInnerWidth)));
+        const contentOuterWpx = targetInnerWidth + padPx * 2;
+        const baseOuterHpx = Math.max(16, (t.baseH ?? Math.abs(t.h))) * scale;
+        const neededHpx = Math.max(baseOuterHpx, Math.max(lineHeightPx, lines.length * lineHeightPx) + padPx * 2 + 2); // clamp to base height
+        let newOuterWpx = contentOuterWpx; // allow shrink/grow to keep inner constant with new padding
+        let newOuterHpx = Math.max(baseOuterHpx, neededHpx);
+        const newH = newOuterHpx / scale;
+        const newW = newOuterWpx / scale;
+        // Adjust x/y symmetrically based on delta outer size
+        const centerX = updated.x + (updated.w >= 0 ? updated.w / 2 : -updated.w / 2);
+        const centerY = updated.y + (updated.h >= 0 ? updated.h / 2 : -updated.h / 2);
+        const signW = updated.w >= 0 ? 1 : -1;
+        const signH = updated.h >= 0 ? 1 : -1;
+        const newX = centerX - (newW / 2) * signW;
+        const newY = centerY - (newH / 2) * signH;
+        return { ...updated, x: newX, y: newY, h: newH, w: signW * newW };
+      }
+      return updated;
+    }));
+  }, [coercedProps.color, coercedProps.fontSize, coercedProps.fontWeight, coercedProps.fontStyle, coercedProps.textDecoration, coercedProps.textAlign, coercedProps.textBorder, coercedProps.textBoxLineThickness, coercedProps.strokeWidth, coercedProps.opacity, selectedText]);
 
   // Apply callout properties
   useEffect(() => {
-    if (activeTool !== 'callout') return;
+    if (skipApplyRef.current.callout) { skipApplyRef.current.callout = false; return; }
     if (selectedCallout === null) return;
     const targetIndex = selectedCallout;
     if (targetIndex === null) return;
     const nextOpacity = coercedProps.opacity > 1 ? coercedProps.opacity / 100 : (coercedProps.opacity ?? 1);
-    setCallouts(prev => prev.map((c, i) => i === targetIndex ? {
-      ...c,
-      color: coercedProps.color,
-      fontSize: coercedProps.fontSize,
-      strokeWidth: coercedProps.strokeWidth,
-      opacity: Math.max(0, Math.min(1, nextOpacity))
-    } : c));
-  }, [coercedProps.color, coercedProps.fontSize, coercedProps.strokeWidth, coercedProps.opacity, activeTool]);
+    setCallouts(prev => prev.map((c, i) => {
+      if (i !== targetIndex) return c;
+      const updated = {
+        ...c,
+        color: coercedProps.color,
+        fontSize: coercedProps.fontSize,
+        fontWeight: coercedProps.fontWeight,
+        fontStyle: coercedProps.fontStyle,
+        textDecoration: coercedProps.textDecoration,
+        textAlign: coercedProps.textAlign,
+        strokeWidth: coercedProps.strokeWidth,
+        opacity: Math.max(0, Math.min(1, nextOpacity))
+      } as Callout;
+      // Auto-expand height based on content for callout
+      const off = document.createElement('canvas').getContext('2d');
+      if (off) {
+        const padPx = 8 * scale;
+        const fontPx = updated.fontSize * scale;
+        const lineHeightPx = fontPx + 2;
+        let widthPx = Math.max(40, (updated.baseW ?? Math.abs(updated.w))) * scale - padPx * 2;
+        off.font = `${updated.fontStyle || 'normal'} ${updated.fontWeight || 300} ${fontPx}px Arial`;
+        const wrap = (text: string, maxW: number) => {
+          const segments = (text || '').split(/\r?\n/);
+          const out: string[] = [];
+          let maxLineWidth = 0;
+          for (const seg of segments) {
+            const tokens = seg.split(/(\s+)/);
+            let line = '';
+            for (const tk of tokens) {
+              const test = line + tk;
+              const testWidth = off.measureText(test).width;
+              if (testWidth <= maxW || line.length === 0) { line = test; maxLineWidth = Math.max(maxLineWidth, testWidth); }
+              else { out.push(line.trimEnd()); maxLineWidth = Math.max(maxLineWidth, off.measureText(line).width); line = tk.trimStart(); }
+            }
+            out.push(line.trimEnd());
+            maxLineWidth = Math.max(maxLineWidth, off.measureText(line).width);
+          }
+          return { lines: out, maxLineWidth } as { lines: string[]; maxLineWidth: number };
+        };
+        const { lines, maxLineWidth } = wrap(updated.text, widthPx);
+        const desiredInnerWidth = Math.ceil(Math.max(widthPx, maxLineWidth)) + 2;
+        const newWidthPx = desiredInnerWidth + padPx * 2;
+        const baseOuterHpx = Math.max(24, (updated.baseH ?? Math.abs(updated.h))) * scale;
+        const neededPx = Math.max(baseOuterHpx, Math.max(lineHeightPx, lines.length * lineHeightPx) + padPx * 2 + 2);
+        const newH = neededPx / scale;
+        const newW = newWidthPx / scale;
+        return { ...updated, h: newH, w: newW, baseW: updated.baseW ?? Math.max(40, Math.abs(updated.w)) };
+      }
+      return updated;
+    }));
+  }, [coercedProps.color, coercedProps.fontSize, coercedProps.fontWeight, coercedProps.fontStyle, coercedProps.textDecoration, coercedProps.textAlign, coercedProps.strokeWidth, coercedProps.opacity, selectedCallout]);
 
   // Mouse handlers for pan/draw
   useEffect(() => {
@@ -853,10 +1053,12 @@ export default function PDFViewerV2({
     };
 
     const onDown = (e: MouseEvent) => {
+      // Always start a fresh interaction for any draw or drag
+      beginInteraction();
       if (activeTool === 'freehand') {
         const p = getLocalPoint(e);
         const path: FreehandPath = { points: [p], color: coercedProps.color, strokeWidth: coercedProps.strokeWidth, opacity: coercedProps.opacity };
-        drawingRef.current = path;
+        drawingRef.current = path; interactionChangedRef.current = true;
       } else if (activeTool === 'rectangle') {
         const p = getLocalPoint(e);
         // Hit-test existing rects first (top-most wins)
@@ -884,7 +1086,7 @@ export default function PDFViewerV2({
           return;
         }
         // Otherwise start a new rect
-        drawingRef.current = { x: p.x, y: p.y, w: 0, h: 0, color: coercedProps.color, strokeWidth: coercedProps.strokeWidth, opacity: coercedProps.opacity } as Rect;
+        drawingRef.current = { x: p.x, y: p.y, w: 0, h: 0, color: coercedProps.color, strokeWidth: coercedProps.strokeWidth, opacity: coercedProps.opacity } as Rect; interactionChangedRef.current = true;
         setSelectedRect(null);
       } else if (activeTool === 'circle') {
         const p = getLocalPoint(e);
@@ -909,7 +1111,7 @@ export default function PDFViewerV2({
           movingCircleRef.current = { index: i, dx: p.x - c.x, dy: p.y - c.y };
           return;
         }
-        drawingRef.current = { x: p.x, y: p.y, r: 0, color: coercedProps.color, strokeWidth: coercedProps.strokeWidth, opacity: coercedProps.opacity } as Circle;
+        drawingRef.current = { x: p.x, y: p.y, r: 0, color: coercedProps.color, strokeWidth: coercedProps.strokeWidth, opacity: coercedProps.opacity } as Circle; interactionChangedRef.current = true;
         setSelectedCircle(null);
       } else if (activeTool === 'arrow') {
         const p = getLocalPoint(e);
@@ -926,11 +1128,11 @@ export default function PDFViewerV2({
           const dist = Math.hypot(p.x - proj.x, p.y - proj.y);
           if (dist <= handle) { setSelectedArrow(i); onSyncToolProperties?.({ color: a.color, strokeWidth: a.strokeWidth, opacity: a.opacity }, 'arrow'); movingArrowRef.current = { index: i, dx: p.x - a.x1, dy: p.y - a.y1 }; return; }
         }
-        drawingRef.current = { x1: p.x, y1: p.y, x2: p.x, y2: p.y, color: coercedProps.color, strokeWidth: coercedProps.strokeWidth, opacity: coercedProps.opacity } as Arrow;
+        drawingRef.current = { x1: p.x, y1: p.y, x2: p.x, y2: p.y, color: coercedProps.color, strokeWidth: coercedProps.strokeWidth, opacity: coercedProps.opacity } as Arrow; interactionChangedRef.current = true;
         setSelectedArrow(null);
       } else if (activeTool === 'text') {
         const p = getLocalPoint(e);
-        // Hit-test existing textboxes for move/resize
+        // Hit-test existing textboxes for move/resize or edit
         for (let i = texts.length - 1; i >= 0; i--) {
           const t = texts[i];
           const x = t.w >= 0 ? t.x : t.x + t.w;
@@ -941,7 +1143,22 @@ export default function PDFViewerV2({
           const inside = p.x >= x && p.x <= x + w && p.y >= y && p.y <= y + h;
           if (!inside) continue;
           setSelectedText(i);
-          onSyncToolProperties?.({ color: t.color, fontSize: t.fontSize, strokeWidth: t.strokeWidth, opacity: t.opacity }, 'text');
+          onSyncToolProperties?.({ color: t.color, fontSize: t.fontSize, strokeWidth: t.strokeWidth, opacity: t.opacity, fontWeight: t.fontWeight, fontStyle: t.fontStyle, textDecoration: t.textDecoration, textAlign: t.textAlign, textBorder: t.borderEnabled, textBoxLineThickness: t.borderWidth }, 'text');
+          skipApplyRef.current.text = true;
+          // If not clicking a handle, enter inline edit mode immediately
+          const onHandle = (
+            Math.hypot(p.x - x, p.y - y) <= handle ||
+            Math.hypot(p.x - (x + w), p.y - y) <= handle ||
+            Math.hypot(p.x - x, p.y - (y + h)) <= handle ||
+            Math.hypot(p.x - (x + w), p.y - (y + h)) <= handle ||
+            Math.abs(p.y - y) <= handle || Math.abs(p.x - (x + w)) <= handle ||
+            Math.abs(p.y - (y + h)) <= handle || Math.abs(p.x - x) <= handle
+          );
+          if (!onHandle) {
+            // In text tool, drag to move; double-click opens editor
+            movingTextRef.current = { index: i, dx: p.x - x, dy: p.y - y };
+            return;
+          }
           if (Math.hypot(p.x - x, p.y - y) <= handle) { resizingTextRef.current = { index: i, anchor: 'nw' }; return; }
           if (Math.hypot(p.x - (x + w), p.y - y) <= handle) { resizingTextRef.current = { index: i, anchor: 'ne' }; return; }
           if (Math.hypot(p.x - x, p.y - (y + h)) <= handle) { resizingTextRef.current = { index: i, anchor: 'sw' }; return; }
@@ -953,7 +1170,8 @@ export default function PDFViewerV2({
           movingTextRef.current = { index: i, dx: p.x - x, dy: p.y - y };
           return;
         }
-        drawingRef.current = { kind: 'text', x: p.x, y: p.y, w: 120 / scale, h: 28 / scale, text: '', color: coercedProps.color, fontSize: coercedProps.fontSize, opacity: coercedProps.opacity, strokeWidth: coercedProps.strokeWidth } as any;
+        // Start new text box only on drag; begin with zero size. Defaults: 14px font, 1.5px border enabled
+        drawingRef.current = { kind: 'text', x: p.x, y: p.y, w: 0, h: 0, text: '', color: coercedProps.color, fontSize: 14, opacity: coercedProps.opacity, strokeWidth: coercedProps.strokeWidth, borderEnabled: true, borderWidth: 1.5, fontWeight: 300, fontStyle: 'normal', textDecoration: 'none', textAlign: 'left' } as any; interactionChangedRef.current = true;
         setSelectedText(null);
       } else if (activeTool === 'callout') {
         const p = getLocalPoint(e);
@@ -968,7 +1186,21 @@ export default function PDFViewerV2({
           const inside = p.x >= x && p.x <= x + w && p.y >= y && p.y <= y + h;
           if (!inside) continue;
           setSelectedCallout(i);
-          onSyncToolProperties?.({ color: c.color, fontSize: c.fontSize, strokeWidth: c.strokeWidth, opacity: c.opacity }, 'callout');
+          onSyncToolProperties?.({ color: c.color, fontSize: c.fontSize, strokeWidth: c.strokeWidth, opacity: c.opacity, fontWeight: c.fontWeight, fontStyle: c.fontStyle, textDecoration: c.textDecoration, textAlign: c.textAlign }, 'callout');
+          skipApplyRef.current.callout = true;
+          const onHandle = (
+            Math.hypot(p.x - x, p.y - y) <= handle ||
+            Math.hypot(p.x - (x + w), p.y - y) <= handle ||
+            Math.hypot(p.x - x, p.y - (y + h)) <= handle ||
+            Math.hypot(p.x - (x + w), p.y - (y + h)) <= handle ||
+            Math.abs(p.y - y) <= handle || Math.abs(p.x - (x + w)) <= handle ||
+            Math.abs(p.y - (y + h)) <= handle || Math.abs(p.x - x) <= handle
+          );
+          if (!onHandle) {
+            setActiveEditor({ kind: 'callout', index: i });
+            setEditorValue(c.text || '');
+            return;
+          }
           if (Math.hypot(p.x - x, p.y - y) <= handle) { resizingCalloutRef.current = { index: i, anchor: 'nw' }; return; }
           if (Math.hypot(p.x - (x + w), p.y - y) <= handle) { resizingCalloutRef.current = { index: i, anchor: 'ne' }; return; }
           if (Math.hypot(p.x - x, p.y - (y + h)) <= handle) { resizingCalloutRef.current = { index: i, anchor: 'sw' }; return; }
@@ -981,7 +1213,7 @@ export default function PDFViewerV2({
           return;
         }
         // Otherwise: First click defines the arrow head (anchor). Drag will extend the shaft.
-        drawingRef.current = { kind: 'calloutLeader', ax: p.x, ay: p.y, tx: p.x, ty: p.y, color: coercedProps.color, strokeWidth: coercedProps.strokeWidth, opacity: coercedProps.opacity, fontSize: coercedProps.fontSize } as any;
+        drawingRef.current = { kind: 'calloutLeader', ax: p.x, ay: p.y, tx: p.x, ty: p.y, color: coercedProps.color, strokeWidth: coercedProps.strokeWidth, opacity: coercedProps.opacity, fontSize: coercedProps.fontSize } as any; interactionChangedRef.current = true;
         setSelectedCallout(null);
       } else if (activeTool === 'cloud') {
         const p = getLocalPoint(e);
@@ -1011,7 +1243,7 @@ export default function PDFViewerV2({
           return;
         }
         // Otherwise, start creating a new cloud
-        drawingRef.current = { x: p.x, y: p.y, w: 0, h: 0, color: coercedProps.color, strokeWidth: cloudStrokeWidth, opacity: coercedProps.opacity, scallopSize: cloudScallopSize } as Cloud;
+        drawingRef.current = { x: p.x, y: p.y, w: 0, h: 0, color: coercedProps.color, strokeWidth: cloudStrokeWidth, opacity: coercedProps.opacity, scallopSize: cloudScallopSize } as Cloud; interactionChangedRef.current = true;
         setSelectedCloud(null); // don't show handles during initial drag
       } else if (activeTool === 'select') {
         // Pan only in select mode
@@ -1058,7 +1290,7 @@ export default function PDFViewerV2({
             break;
           }
         }
-        // Allow dragging existing standalone text boxes too
+        // Select mode: allow dragging existing text boxes
         if (!movingCalloutRef.current) {
           for (let i = texts.length - 1; i >= 0; i--) {
             const t = texts[i];
@@ -1067,6 +1299,19 @@ export default function PDFViewerV2({
             const w = Math.max(20, Math.abs(t.w));
             const h = Math.max(16, Math.abs(t.h));
             if (local.x >= x && local.x <= x + w && local.y >= y && local.y <= y + h) {
+              onSyncToolProperties?.({
+                color: t.color,
+                fontSize: t.fontSize,
+                strokeWidth: t.strokeWidth,
+                opacity: t.opacity,
+                fontWeight: t.fontWeight,
+                fontStyle: t.fontStyle,
+                textDecoration: t.textDecoration,
+                textAlign: t.textAlign,
+                textBorder: t.borderEnabled,
+                textBoxLineThickness: t.borderWidth
+              }, 'text');
+              skipApplyRef.current.text = true;
               movingTextRef.current = { index: i, dx: local.x - x, dy: local.y - y };
               isPanningRef.current = false;
               break;
@@ -1138,40 +1383,69 @@ export default function PDFViewerV2({
       drawOverlay();
     };
 
+    const onDblClick = (e: MouseEvent) => {
+      const p = getLocalPoint(e);
+      // Prefer editing existing text or callout
+      for (let i = texts.length - 1; i >= 0; i--) {
+        const t = texts[i];
+        const x = t.w >= 0 ? t.x : t.x + t.w;
+        const y = t.h >= 0 ? t.y : t.y + t.h;
+        const w = Math.max(20, Math.abs(t.w));
+        const h = Math.max(16, Math.abs(t.h));
+        if (p.x >= x && p.x <= x + w && p.y >= y && p.y <= y + h) {
+          setActiveEditor({ kind: 'text', index: i });
+          setEditorValue(t.text || '');
+          return;
+        }
+      }
+      for (let i = callouts.length - 1; i >= 0; i--) {
+        const c = callouts[i];
+        const x = c.w >= 0 ? c.x : c.x + c.w;
+        const y = c.h >= 0 ? c.y : c.y + c.h;
+        const w = Math.max(40, Math.abs(c.w));
+        const h = Math.max(24, Math.abs(c.h));
+        if (p.x >= x && p.x <= x + w && p.y >= y && p.y <= y + h) {
+          setActiveEditor({ kind: 'callout', index: i });
+          setEditorValue(c.text || '');
+          return;
+        }
+      }
+    };
+
     const onMove = (e: MouseEvent) => {
       if (drawingRef.current) {
         if ((drawingRef.current as FreehandPath).points) {
           const p = getLocalPoint(e);
-          (drawingRef.current as FreehandPath).points.push(p);
+          (drawingRef.current as FreehandPath).points.push(p); interactionChangedRef.current = true;
         } else {
           const p = getLocalPoint(e);
           const anyRef = drawingRef.current as any;
           if (typeof (anyRef as Rect).w === 'number' && typeof (anyRef as Rect).h === 'number') {
             const r = anyRef as Rect;
           r.w = p.x - r.x;
-          r.h = p.y - r.y;
+          r.h = p.y - r.y; interactionChangedRef.current = true;
           } else if (typeof (anyRef as Circle).r === 'number') {
             const c = anyRef as Circle;
             const dx = p.x - c.x;
             const dy = p.y - c.y;
-            c.r = Math.sqrt(dx * dx + dy * dy);
+            c.r = Math.sqrt(dx * dx + dy * dy); interactionChangedRef.current = true;
           } else if (typeof (anyRef as Arrow).x1 === 'number') {
             const a = anyRef as Arrow;
             a.x2 = p.x;
-            a.y2 = p.y;
+            a.y2 = p.y; interactionChangedRef.current = true;
           } else if ((anyRef as TextBox).text !== undefined) {
             const t = anyRef as TextBox;
             // allow resize while dragging
             t.w = p.x - t.x;
-            t.h = p.y - t.y;
+            t.h = p.y - t.y; interactionChangedRef.current = true;
           } else if (anyRef.kind === 'calloutLeader') {
             // Update the tail point (where the box will appear later)
             anyRef.tx = p.x;
-            anyRef.ty = p.y;
+            anyRef.ty = p.y; interactionChangedRef.current = true;
           } else if ((anyRef as Cloud).scallopSize !== undefined) {
             const c = anyRef as Cloud;
             c.w = p.x - c.x;
-            c.h = p.y - c.y;
+            c.h = p.y - c.y; interactionChangedRef.current = true;
           }
         }
         drawOverlay();
@@ -1216,6 +1490,33 @@ export default function PDFViewerV2({
           else if (anchor === 'e') { w = local.x - x0; }
           else if (anchor === 's') { h = local.y - y0; }
           else if (anchor === 'w') { w = (x0 + w0) - local.x; x = local.x; }
+
+          // Auto-expand height if wrapping increases lines after width change
+          try {
+            const padPx = 8 * scale + (t.borderEnabled ? ((t.borderWidth || 1.5) * scale) : 0);
+            const innerWidthPx = Math.max(20, Math.abs(w)) * scale - padPx * 2;
+            const fontPx = (t.fontSize || 14) * scale;
+            const lineHeightPx = fontPx + 2;
+            const ctx = document.createElement('canvas').getContext('2d');
+            if (ctx) {
+              ctx.font = `${t.fontStyle || 'normal'} ${t.fontWeight || 300} ${fontPx}px Arial`;
+              const segments = (t.text || '').split(/\r?\n/);
+              let linesCount = 0;
+              for (const seg of segments) {
+                const tokens = seg.split(/(\s+)/);
+                let line = '';
+                for (const tk of tokens) {
+                  const test = line + tk;
+                  if (ctx.measureText(test).width <= innerWidthPx || line.length === 0) line = test; else { linesCount++; line = tk.trimStart(); }
+                }
+                linesCount++;
+              }
+              const neededPx = Math.max(lineHeightPx, linesCount * lineHeightPx) + padPx * 2 + 2;
+              const neededH = neededPx / scale;
+              if (neededH > h) h = neededH; // ensure height always enough
+            }
+          } catch {}
+
           return { ...t, x, y, w, h };
         }));
       } else if (resizingRectRef.current) {
@@ -1345,30 +1646,48 @@ export default function PDFViewerV2({
     const onUp = () => {
       if (drawingRef.current) {
         if ((drawingRef.current as FreehandPath).points) {
-          setFreehands(prev => [...prev, drawingRef.current as FreehandPath]);
+          const path = drawingRef.current as FreehandPath;
+          setFreehands(prev => [...prev, { points: [...path.points], color: path.color, strokeWidth: path.strokeWidth, opacity: path.opacity }]);
+          interactionChangedRef.current = true;
         } else {
           const anyRef = drawingRef.current as any;
           // IMPORTANT: save specific tool types BEFORE generic rectangle
           if ((anyRef as TextBox).text !== undefined) {
             const t = anyRef as TextBox;
-            const normalized = {
-              x: t.w >= 0 ? t.x : t.x + t.w,
-              y: t.h >= 0 ? t.y : t.y + t.h,
-              w: Math.max(20, Math.abs(t.w)),
-              h: Math.max(16, Math.abs(t.h)),
-              text: editorValue || '',
-              color: t.color,
-              fontSize: t.fontSize,
-              opacity: t.opacity,
-              strokeWidth: t.strokeWidth
-            } as TextBox;
-            setTexts(prev => {
-              const idx = prev.length;
-              const next = [...prev, normalized];
-              setActiveEditor({ kind: 'text', index: idx });
-              setEditorValue('');
-              return next;
-            });
+            const w = Math.abs(t.w);
+            const h = Math.abs(t.h);
+            const minW = 8 / scale;
+            const minH = 8 / scale;
+            // Only create if dragged beyond a small threshold
+            if (w >= minW && h >= minH) {
+              const normalized: TextBox = {
+                x: t.w >= 0 ? t.x : t.x + t.w,
+                y: t.h >= 0 ? t.y : t.y + t.h,
+                w: Math.max(20, w),
+                h: Math.max(16, h),
+                text: editorValue || '',
+                color: t.color,
+                fontSize: t.fontSize,
+                opacity: t.opacity,
+                strokeWidth: t.strokeWidth,
+                fontWeight: t.fontWeight,
+                fontStyle: t.fontStyle,
+                textDecoration: t.textDecoration,
+                textAlign: t.textAlign,
+                borderEnabled: t.borderEnabled ?? true,
+                borderWidth: t.borderWidth ?? 1.5,
+                baseW: Math.max(20, w),
+                baseH: Math.max(16, h)
+              };
+              setTexts(prev => {
+                const idx = prev.length;
+                const next = [...prev, normalized];
+                setActiveEditor({ kind: 'text', index: idx });
+                setSelectedText(idx);
+                setEditorValue('');
+                return next;
+              });
+            }
           } else if (anyRef.kind === 'calloutLeader') {
             const leader = anyRef as { ax: number; ay: number; tx: number; ty: number; color: string; strokeWidth: number; opacity: number; fontSize: number };
             // Place the box centered at tail position
@@ -1384,12 +1703,15 @@ export default function PDFViewerV2({
               opacity: leader.opacity,
               strokeWidth: leader.strokeWidth,
               anchorX: leader.ax,
-              anchorY: leader.ay
+              anchorY: leader.ay,
+              baseW: Math.max(40, Math.abs(w)),
+              baseH: Math.max(24, Math.abs(h))
             };
             setCallouts(prev => {
               const idx = prev.length;
               const next = [...prev, normalized];
               setActiveEditor({ kind: 'callout', index: idx });
+              setSelectedCallout(idx);
               setEditorValue('');
               return next;
             });
@@ -1448,13 +1770,62 @@ export default function PDFViewerV2({
       movingCloudRef.current = null;
       resizingCloudRef.current = null;
       drawOverlay();
+      commitInteraction();
     };
 
     overlay.addEventListener('mousedown', onDown);
+    overlay.addEventListener('dblclick', onDblClick);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat) return; // avoid OS key repeat causing multi-steps in one press
+      const isMac = navigator.platform.toLowerCase().includes('mac');
+      const meta = isMac ? e.metaKey : e.ctrlKey;
+      if (meta && (e.key === 'z' || e.key === 'Z')) {
+        e.preventDefault();
+        if (e.shiftKey) redo(); else undo();
+      } else if (meta && (e.key === 'y' || e.key === 'Y')) {
+        e.preventDefault();
+        redo();
+      } else if (e.key === 'Escape') {
+        setActiveEditor(null);
+        setSelectedRect(null); setSelectedCircle(null); setSelectedText(null); setSelectedCallout(null); setSelectedArrow(null); setSelectedCloud(null);
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        // delete selected shape
+        if (selectedText !== null) setTexts(prev => prev.filter((_, i) => i !== selectedText));
+        else if (selectedCallout !== null) setCallouts(prev => prev.filter((_, i) => i !== selectedCallout));
+        else if (selectedRect !== null) setRects(prev => prev.filter((_, i) => i !== selectedRect));
+        else if (selectedCircle !== null) setCircles(prev => prev.filter((_, i) => i !== selectedCircle));
+        else if (selectedArrow !== null) setArrows(prev => prev.filter((_, i) => i !== selectedArrow));
+        else if (selectedCloud !== null) setClouds(prev => prev.filter((_, i) => i !== selectedCloud));
+        interactionChangedRef.current = true; commitInteraction();
+      } else if (meta && (e.key === 'c' || e.key === 'C')) {
+        // copy selected shape to a ref
+        const sel = selectedText ?? selectedCallout ?? selectedRect ?? selectedCircle ?? selectedArrow ?? selectedCloud;
+        if (selectedText !== null) (window as any).__clipboard = { kind: 'text', data: texts[selectedText] };
+        else if (selectedCallout !== null) (window as any).__clipboard = { kind: 'callout', data: callouts[selectedCallout] };
+        else if (selectedRect !== null) (window as any).__clipboard = { kind: 'rect', data: rects[selectedRect] };
+        else if (selectedCircle !== null) (window as any).__clipboard = { kind: 'circle', data: circles[selectedCircle] };
+        else if (selectedArrow !== null) (window as any).__clipboard = { kind: 'arrow', data: arrows[selectedArrow] };
+        else if (selectedCloud !== null) (window as any).__clipboard = { kind: 'cloud', data: clouds[selectedCloud] };
+      } else if (meta && (e.key === 'v' || e.key === 'V')) {
+        const clip = (window as any).__clipboard;
+        if (!clip) return;
+        const offset = 10 / scale; // paste with slight offset
+        if (clip.kind === 'text') { const t = clone(clip.data as TextBox); t.x += offset; t.y += offset; setTexts(prev => [...prev, t]); setSelectedText(texts.length); }
+        else if (clip.kind === 'callout') { const c = clone(clip.data as Callout); c.x += offset; c.y += offset; setCallouts(prev => [...prev, c]); setSelectedCallout(callouts.length); }
+        else if (clip.kind === 'rect') { const r = clone(clip.data as Rect); r.x += offset; r.y += offset; setRects(prev => [...prev, r]); setSelectedRect(rects.length); }
+        else if (clip.kind === 'circle') { const c = clone(clip.data as Circle); c.x += offset; c.y += offset; setCircles(prev => [...prev, c]); setSelectedCircle(circles.length); }
+        else if (clip.kind === 'arrow') { const a = clone(clip.data as Arrow); const dx = offset, dy = offset; a.x1 += dx; a.y1 += dy; a.x2 += dx; a.y2 += dy; setArrows(prev => [...prev, a]); setSelectedArrow(arrows.length); }
+        else if (clip.kind === 'cloud') { const c = clone(clip.data as Cloud); c.x += offset; c.y += offset; setClouds(prev => [...prev, c]); setSelectedCloud(clouds.length); }
+        interactionChangedRef.current = true; commitInteraction();
+      }
+    };
+    window.addEventListener('keydown', onKey);
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
     return () => {
       overlay.removeEventListener('mousedown', onDown);
+      overlay.removeEventListener('dblclick', onDblClick);
+      window.removeEventListener('keydown', onKey);
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
@@ -1469,7 +1840,7 @@ export default function PDFViewerV2({
              style={{ transform: `translate(${pan.x}px, ${pan.y}px)` }}>
           <canvas ref={canvasRef} className="block" />
           <canvas ref={overlayRef} className="absolute inset-0" style={{ pointerEvents: 'auto' }} />
-          {/* Inline editors */}
+          {/* Inline editors + static DOM text renderers */}
           {activeEditor && (() => {
             const toRect = () => {
               if (activeEditor.kind === 'text') {
@@ -1492,7 +1863,11 @@ export default function PDFViewerV2({
             };
             const r = toRect();
             if (!r) return null;
-            const padding = 8;
+            // Use constant inner padding (8px). Border grows outward so text doesn't pulse during edits.
+            const padding = 8 * scale;
+            const tShape = activeEditor.kind === 'text' ? texts[activeEditor.index] : undefined;
+            const cShape = activeEditor.kind === 'callout' ? callouts[activeEditor.index] : undefined;
+            const isUnderline = (activeEditor.kind === 'text' ? (tShape?.textDecoration === 'underline') : (cShape?.textDecoration === 'underline'));
             const style: React.CSSProperties = {
               position: 'absolute',
               left: r.x * scale + padding,
@@ -1502,7 +1877,13 @@ export default function PDFViewerV2({
               height: 'auto',
               fontSize: r.fontSize * scale,
               lineHeight: `${r.fontSize * scale + 2}px`,
-              color: '#111827',
+              color: (activeEditor.kind === 'text' ? (tShape?.color || '#111827') : (cShape?.color || '#111827')),
+              fontWeight: ((activeEditor.kind === 'text' ? (tShape?.fontWeight || 300) : (cShape?.fontWeight || 300)) as any),
+              fontStyle: ((activeEditor.kind === 'text' ? (tShape?.fontStyle || 'normal') : (cShape?.fontStyle || 'normal')) as any),
+              textDecoration: (isUnderline ? 'underline' : 'none') as any,
+              textDecorationLine: (isUnderline ? 'underline' : 'none') as any,
+              textDecorationColor: (isUnderline ? ((activeEditor.kind === 'text' ? (tShape?.color || '#111827') : (cShape?.color || '#111827'))) : 'transparent') as any,
+              textAlign: ((activeEditor.kind === 'text' ? (tShape?.textAlign || 'left') : (cShape?.textAlign || 'left')) as any),
               border: 'none',
               padding: 0,
               margin: 0,
@@ -1521,37 +1902,69 @@ export default function PDFViewerV2({
               setActiveEditor(null);
             };
             return (
-              <textarea
+              <>
+                {/* Persistent border/fill while editing */}
+                {(() => {
+                  const t = texts[activeEditor.index];
+                  if (!t || !t.borderEnabled) return null;
+                  const padPx = padding;
+                  return (
+                    <div style={{
+                      position: 'absolute',
+                      left: r.x * scale,
+                      top: r.y * scale,
+                      width: r.w * scale,
+                      height: r.h * scale,
+                      pointerEvents: 'none'
+                    }}>
+                      <div style={{ position: 'absolute', inset: 0, background: '#ffffff', opacity: Math.min(1, Math.max(0, t.opacity ?? 1)) }} />
+                      <div style={{ position: 'absolute', inset: 0, border: `${(t.borderWidth || 1.5) * scale}px solid ${t.color}` }} />
+        </div>
+                  );
+                })()}
+                <textarea
                 key={`editor-${activeEditor.kind}-${activeEditor.index}`}
                 style={style}
                 value={editorValue}
+                spellCheck={false}
+                autoCorrect="off"
                 onChange={e => {
                   setEditorValue(e.target.value);
                   const el = e.currentTarget;
+                  // Recalculate height to content
                   el.style.height = 'auto';
                   el.style.height = `${el.scrollHeight}px`;
-                  // Expand width if needed
+                  // Measure natural content width to allow shrinking and growing
                   el.style.width = 'auto';
-                  const newWidthPx = Math.max(el.scrollWidth, (r.w * scale - padding * 2));
-                  el.style.width = `${newWidthPx}px`;
-                  // Update underlying shape size to fit text
+                  const contentWidthPx = el.scrollWidth; // intrinsic content width
+                  // Minimum width is the originally dragged inner width
+                  const minInnerWidthPx = Math.max(20, ((activeEditor.kind === 'text' ? (texts[activeEditor.index]?.baseW ?? r.w) : (callouts[activeEditor.index]?.baseW ?? r.w)) * scale - padding * 2));
+                  const newInnerWidthPx = Math.max(contentWidthPx, minInnerWidthPx);
+                  el.style.width = `${newInnerWidthPx}px`;
+                  const newOuterWidth = (newInnerWidthPx + padding * 2) / scale;
+                  // Allow shrink but not below base height
+                  const baseInnerHeightPx = Math.max(16, ((activeEditor.kind === 'text' ? (texts[activeEditor.index]?.baseH ?? Math.abs(texts[activeEditor.index]?.h || r.h)) : (callouts[activeEditor.index]?.baseH ?? Math.abs(callouts[activeEditor.index]?.h || r.h))) * scale - padding))
+                  const contentInnerHeightPx = el.scrollHeight;
+                  const newInnerHeightPx = Math.max(baseInnerHeightPx, contentInnerHeightPx);
+                  const newOuterHeight = (newInnerHeightPx + padding) / scale;
+                  // Update underlying shape size to fit text (both grow and shrink)
                   if (activeEditor.kind === 'callout') {
-                    setCallouts(prev => prev.map((c, i) => i === activeEditor.index ? { ...c, w: (newWidthPx + padding * 2) / scale, h: (el.scrollHeight + padding) / scale } : c));
+                    setCallouts(prev => prev.map((c, i) => i === activeEditor.index ? { ...c, w: newOuterWidth, h: newOuterHeight, baseW: c.baseW ?? Math.max(40, Math.abs(c.w)), baseH: c.baseH ?? Math.max(24, Math.abs(c.h)) } : c));
                   } else {
                     setTexts(prev => prev.map((t, i) => {
                       if (i !== activeEditor.index) return t;
                       const baseX = t.w >= 0 ? t.x : t.x + t.w;
                       const baseY = t.h >= 0 ? t.y : t.y + t.h;
-                      return { ...t, x: baseX, y: baseY, w: (newWidthPx + padding * 2) / scale, h: (el.scrollHeight + padding) / scale };
+                      return { ...t, x: baseX, y: baseY, w: newOuterWidth, h: newOuterHeight, baseW: t.baseW ?? Math.max(20, Math.abs(t.w)), baseH: t.baseH ?? Math.max(16, Math.abs(t.h)) };
                     }));
                   }
                 }}
-                onBlur={onCommit}
+                onBlur={() => { interactionChangedRef.current = true; onCommit(); }}
                 onKeyDown={e => {
                   // Allow Enter to create new lines; commit with Ctrl+Enter
                   if (e.key === 'Enter' && e.ctrlKey) {
                     e.preventDefault();
-                    onCommit();
+                    interactionChangedRef.current = true; onCommit();
                   } else if (e.key === 'Escape') {
                     setActiveEditor(null);
                   }
@@ -1559,8 +1972,93 @@ export default function PDFViewerV2({
                 autoFocus
                 placeholder={activeEditor.kind === 'callout' ? 'Type text here' : 'Type text here'}
               />
+              </>
             );
           })()}
+
+          {/* Static text DOM overlay for crisp rendering when not editing */}
+          {texts.map((t, i) => {
+            if (activeEditor && activeEditor.kind === 'text' && activeEditor.index === i) return null;
+            const x = t.w >= 0 ? t.x : t.x + t.w;
+            const y = t.h >= 0 ? t.y : t.y + t.h;
+            const w = Math.max(20, Math.abs(t.w));
+            const h = Math.max(16, Math.abs(t.h));
+            const style: React.CSSProperties = {
+              position: 'absolute',
+              left: x * scale + Math.max(0, (t.borderWidth || 1.5) * scale),
+              top: y * scale + Math.max(0, (t.borderWidth || 1.5) * scale),
+              width: w * scale - Math.max(0, (t.borderWidth || 1.5) * scale) * 2,
+              minHeight: h * scale - Math.max(0, (t.borderWidth || 1.5) * scale) * 2,
+              color: t.color,
+              fontSize: t.fontSize * scale,
+              lineHeight: `${t.fontSize * scale + 2}px`,
+              fontWeight: (t.fontWeight || 300) as any,
+              fontStyle: (t.fontStyle || 'normal') as any,
+              textDecoration: (t.textDecoration || 'none') as any,
+              textAlign: (t.textAlign || 'left') as any,
+              pointerEvents: 'none',
+              whiteSpace: 'pre-wrap'
+            };
+            return (
+              <div key={`text-static-${i}`} style={style}>
+                {t.borderEnabled && (
+                  <>
+                    <div style={{
+                      position: 'absolute',
+                      inset: 0,
+                      background: '#ffffff',
+                      opacity: Math.min(1, Math.max(0, t.opacity ?? 1)),
+                      pointerEvents: 'none'
+                    }} />
+                    <div style={{
+                      position: 'absolute',
+                      inset: 0,
+                      border: `${(t.borderWidth || 1.5) * scale}px solid ${t.color}`,
+                      pointerEvents: 'none'
+                    }} />
+                  </>
+                )}
+                {(() => {
+                  const pad = 8 * scale + (t.borderEnabled ? (t.borderWidth || 1.5) * scale : 0);
+                  const innerStyle: React.CSSProperties = {
+                    position: 'absolute', left: pad, top: pad / 2, right: pad,
+                    textDecoration: (t.textDecoration === 'underline' ? 'underline' : 'none') as any
+                  };
+                  return <div style={innerStyle}>{t.text}</div>;
+                })()}
+              </div>
+            );
+          })}
+
+          {callouts.map((c, i) => {
+            if (activeEditor && activeEditor.kind === 'callout' && activeEditor.index === i) return null;
+            const x = c.w >= 0 ? c.x : c.x + c.w;
+            const y = c.h >= 0 ? c.y : c.y + c.h;
+            const w = Math.max(40, Math.abs(c.w));
+            const h = Math.max(24, Math.abs(c.h));
+            const padding = 8 * scale;
+            const style: React.CSSProperties = {
+              position: 'absolute',
+              left: x * scale + padding,
+              top: y * scale + padding / 2,
+              width: w * scale - padding * 2,
+              minHeight: h * scale - padding,
+              color: '#111827',
+              fontSize: c.fontSize * scale,
+              lineHeight: `${c.fontSize * scale + 2}px`,
+              fontWeight: (c.fontWeight || 300) as any,
+              fontStyle: (c.fontStyle || 'normal') as any,
+              textDecoration: (c.textDecoration || 'none') as any,
+              textAlign: (c.textAlign || 'left') as any,
+              pointerEvents: 'none',
+              whiteSpace: 'pre-wrap'
+            };
+            return (
+              <div key={`callout-static-${i}`} style={style}>
+                {c.text}
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

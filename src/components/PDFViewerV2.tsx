@@ -37,6 +37,9 @@ interface PDFViewerV2Props {
   onToolChange?: (tool: MarkupTool) => void;
   onSyncToolProperties?: (props: any, tool: MarkupTool) => void;
   stampTemplate?: { title: string; status?: 'APPROVED' | 'AS-BUILT' | 'REJECTED' | 'CUSTOM'; color?: string; opacity?: number; strokeWidth?: number; logoUrl?: string; fontSize?: number } | null;
+  measurementConfig?: { unit: 'mm' | 'cm' | 'm' | 'in' | 'ft'; scale: number; fontSize?: number; calibrate?: { version: number; knownLength: number } };
+  onMeasurementCalibrated?: (newScale: number) => void;
+  onRequestCalibration?: (paperLengthPts: number) => void;
 }
 
 export default function PDFViewerV2({
@@ -49,6 +52,9 @@ export default function PDFViewerV2({
   onToolChange,
   onSyncToolProperties,
   stampTemplate
+  , measurementConfig
+  , onMeasurementCalibrated
+  , onRequestCalibration
 }: PDFViewerV2Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -72,6 +78,7 @@ export default function PDFViewerV2({
   type Callout = { x: number; y: number; w: number; h: number; text: string; color: string; fontSize: number; opacity: number; strokeWidth: number; anchorX: number; anchorY: number; fontWeight?: number; fontStyle?: 'normal' | 'italic'; textDecoration?: 'none' | 'underline'; textAlign?: 'left' | 'center' | 'right'; baseW?: number; baseH?: number };
   type Cloud = { x: number; y: number; w: number; h: number; color: string; strokeWidth: number; opacity: number; scallopSize: number };
   type Stamp = { x: number; y: number; w: number; h: number; title: string; status: 'APPROVED' | 'AS-BUILT' | 'REJECTED' | 'CUSTOM'; company?: string; author?: string; date?: string; color: string; opacity: number; strokeWidth: number; logoUrl?: string; fontSize?: number };
+  type Measurement = { x1: number; y1: number; x2: number; y2: number; color: string; strokeWidth: number; labelSize?: number };
   const [freehands, setFreehands] = useState<FreehandPath[]>([]);
   const [rects, setRects] = useState<Rect[]>([]);
   const [circles, setCircles] = useState<Circle[]>([]);
@@ -84,9 +91,58 @@ export default function PDFViewerV2({
   useEffect(() => { stampsRef.current = stamps; }, [stamps]);
   const stampTemplateRef = useRef<typeof stampTemplate>(null);
   useEffect(() => { stampTemplateRef.current = stampTemplate; }, [stampTemplate]);
+  // Measurement state
+  const [measurements, setMeasurements] = useState<Measurement[]>([]);
+  const measurementsRef = useRef<Measurement[]>([]);
+  useEffect(() => { measurementsRef.current = measurements; }, [measurements]);
+  // Keep a temporary line visible after mouseup during first-use calibration
+  const pendingMeasurementRef = useRef<Measurement | null>(null);
+  const measurementUnitRef = useRef<'mm' | 'cm' | 'm' | 'in' | 'ft'>(measurementConfig?.unit || 'mm');
+  const measurementScaleRef = useRef<number>(measurementConfig?.scale ?? 1); // real-per-paper multiplier (e.g., 100 for 1:100)
+  const measurementFontPxRef = useRef<number>(measurementConfig?.fontSize || 12);
+  const calibrationVersionRef = useRef<number>(-1);
+  const calibrationKnownLengthRef = useRef<number>(0);
+  const hasCalibratedRef = useRef<boolean>(false);
+  useEffect(() => {
+    if (measurementConfig?.unit) measurementUnitRef.current = measurementConfig.unit;
+    if (typeof measurementConfig?.scale === 'number') {
+      measurementScaleRef.current = measurementConfig.scale;
+      hasCalibratedRef.current = (measurementConfig.scale || 1) !== 1;
+    }
+    // Sync measurement drawing color from toolProperties color via coercedProps
+    if (toolProperties?.color) {
+      // nothing to set here; color is read from coercedProps when creating measurement
+    }
+    if (typeof measurementConfig?.fontSize === 'number') measurementFontPxRef.current = measurementConfig.fontSize;
+  }, [measurementConfig?.unit, measurementConfig?.scale, measurementConfig?.fontSize]);
+  // When parent applies calibration (scale changes away from 1), clear the pending calibration line
+  useEffect(() => {
+    if ((measurementConfig?.scale || 1) !== 1) {
+      pendingMeasurementRef.current = null;
+      // defer to next frame in case overlay refs are not ready yet
+      Promise.resolve().then(() => requestAnimationFrame(() => drawOverlay()))
+    }
+  }, [measurementConfig?.scale]);
+  useEffect(() => {
+    if (measurementConfig?.calibrate && measurementConfig.calibrate.version !== calibrationVersionRef.current) {
+      calibrationVersionRef.current = measurementConfig.calibrate.version;
+      calibrationKnownLengthRef.current = measurementConfig.calibrate.knownLength; // in selected unit
+    }
+    // If the parent indicates scale is 1 (no calibration), ensure hint is visible via parent, not cursor-follow
+  }, [measurementConfig?.calibrate?.version]);
   const movingStampRef = useRef<{ index: number; dx: number; dy: number } | null>(null);
   const drawingRef = useRef<FreehandPath | Rect | Circle | Arrow | TextBox | Callout | Cloud | null>(null);
   const renderingRef = useRef<Promise<void> | null>(null);
+  const renderTaskRef = useRef<any>(null);
+  // Loupe (magnifier)
+  const altPressedRef = useRef<boolean>(false);
+  const loupePosRef = useRef<{ x: number; y: number } | null>(null);
+  const loupeZoomRef = useRef<number>(2);
+  const loupeRadiusRef = useRef<number>(70);
+  // Measure helper hint
+  const altEverUsedRef = useRef<boolean>(false);
+  const [showMeasureHint, setShowMeasureHint] = useState<{ x: number; y: number } | null>(null);
+  const hintTimerRef = useRef<any>(null);
   const movingCalloutRef = useRef<{ index: number; dx: number; dy: number } | null>(null);
   // Generic selection + move/resize refs per tool
   const [selectedRect, setSelectedRect] = useState<number | null>(null);
@@ -97,6 +153,10 @@ export default function PDFViewerV2({
   const [selectedStamp, setSelectedStamp] = useState<number | null>(null);
   const selectedStampRef = useRef<number | null>(null);
   useEffect(() => { selectedStampRef.current = selectedStamp; }, [selectedStamp]);
+  // Measurement selection and interaction
+  const [selectedMeasurement, setSelectedMeasurement] = useState<number | null>(null);
+  const movingMeasurementRef = useRef<{ index: number; dx: number; dy: number } | null>(null);
+  const resizingMeasurementRef = useRef<{ index: number; end: 'start' | 'end' } | null>(null);
   const movingRectRef = useRef<{ index: number; dx: number; dy: number } | null>(null);
   const resizingRectRef = useRef<{ index: number; anchor: 'nw' | 'ne' | 'sw' | 'se' | 'n' | 'e' | 's' | 'w' } | null>(null);
   const movingCloudRef = useRef<{ index: number; dx: number; dy: number } | null>(null);
@@ -116,14 +176,14 @@ export default function PDFViewerV2({
   const skipApplyRef = useRef<{ text: boolean; callout: boolean }>({ text: false, callout: false });
 
   // History timeline (single array + index)
-  type Snapshot = { freehands: FreehandPath[]; rects: Rect[]; circles: Circle[]; arrows: Arrow[]; texts: TextBox[]; callouts: Callout[]; clouds: Cloud[] };
+  type Snapshot = { freehands: FreehandPath[]; rects: Rect[]; circles: Circle[]; arrows: Arrow[]; texts: TextBox[]; callouts: Callout[]; clouds: Cloud[]; measurements?: Measurement[] };
   const historyRef = useRef<Snapshot[]>([]);
   const historyIndexRef = useRef<number>(-1);
   const interactionChangedRef = useRef<boolean>(false);
   const historyInitializedRef = useRef<boolean>(false);
   const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
   const takeSnapshot = (): Snapshot => ({
-    freehands: clone(freehands), rects: clone(rects), circles: clone(circles), arrows: clone(arrows), texts: clone(texts), callouts: clone(callouts), clouds: clone(clouds)
+    freehands: clone(freehands), rects: clone(rects), circles: clone(circles), arrows: clone(arrows), texts: clone(texts), callouts: clone(callouts), clouds: clone(clouds), measurements: clone(measurements)
   });
   const ensureHistoryInitialized = () => {
     if (historyInitializedRef.current) return;
@@ -156,6 +216,7 @@ export default function PDFViewerV2({
     setTexts(clone(s.texts));
     setCallouts(clone(s.callouts));
     setClouds(clone(s.clouds));
+    setMeasurements(clone(s.measurements || []));
     setSelectedRect(null); setSelectedCircle(null); setSelectedText(null); setSelectedCallout(null); setSelectedArrow(null); setSelectedCloud(null);
     setActiveEditor(null);
     drawOverlay();
@@ -274,8 +335,15 @@ export default function PDFViewerV2({
         canvasContext: ctx,
         viewport: finalViewport
       } as any;
-
-      await page.render(renderContext).promise;
+      // Cancel any in-flight render so the latest wins
+      try { renderTaskRef.current?.cancel?.(); } catch {}
+      const task = page.render(renderContext);
+      renderTaskRef.current = task;
+      try { await task.promise; } catch { /* cancelled */ }
+      if (renderTaskRef.current !== task) {
+        // A newer render started; ignore post-work
+        return;
+      }
 
       // Match overlay size
       const overlay = overlayRef.current;
@@ -292,7 +360,7 @@ export default function PDFViewerV2({
     const running = (renderingRef.current = (async () => {
       try { await render(); } catch {}
     })());
-    return () => { renderingRef.current = null; };
+    return () => { renderingRef.current = null; try { renderTaskRef.current?.cancel?.(); } catch {} };
   }, [currentPage, scale, totalPages]);
 
   // Draw overlay shapes
@@ -443,6 +511,136 @@ export default function PDFViewerV2({
       }
     };
     (stampsRef.current || []).forEach(drawStamp);
+
+    // Measurements
+    const convertPointsToUnit = (pointsLen: number): { value: number; unit: string } => {
+      const paperInches = pointsLen / 72; // points to inches on paper
+      const paperMm = paperInches * 25.4;
+      const realMm = paperMm * (measurementScaleRef.current || 1);
+      const unit = measurementUnitRef.current || 'mm';
+      switch (unit) {
+        case 'cm': return { value: realMm / 10, unit: 'cm' };
+        case 'm': return { value: realMm / 1000, unit: 'm' };
+        case 'in': return { value: realMm / 25.4, unit: 'in' };
+        case 'ft': return { value: realMm / 304.8, unit: 'ft' };
+        default: return { value: realMm, unit: 'mm' };
+      }
+    };
+    const drawMeasurement = (m: Measurement) => {
+      const x1 = m.x1 * scale, y1 = m.y1 * scale, x2 = m.x2 * scale, y2 = m.y2 * scale;
+      ctx.strokeStyle = m.color || '#ef4444';
+      ctx.lineWidth = m.strokeWidth || 2;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      // End ticks (perpendicular markers)
+      const dx = x2 - x1, dy = y2 - y1;
+      const len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len, ny = dx / len; // unit perpendicular
+      const t = 6 * scale; // tick length
+      ctx.beginPath();
+      ctx.moveTo(x1 + nx * t, y1 + ny * t);
+      ctx.lineTo(x1 - nx * t, y1 - ny * t);
+      ctx.moveTo(x2 + nx * t, y2 + ny * t);
+      ctx.lineTo(x2 - nx * t, y2 - ny * t);
+      ctx.stroke();
+      const lenPts = Math.hypot((m.x2 - m.x1), (m.y2 - m.y1));
+      const { value, unit } = convertPointsToUnit(lenPts);
+      // Label near the midpoint
+      const midX = (x1 + x2) / 2; const midY = (y1 + y2) / 2;
+      const chosenPx = Math.max(1, (m.labelSize ?? (measurementFontPxRef.current || 12)));
+      const fontPx = chosenPx * scale;
+      ctx.font = `${fontPx}px Arial`;
+      ctx.fillStyle = m.color || '#ef4444';
+      const text = `${Math.round(value)} ${unit}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      // rotate text to be parallel with the line and place slightly above it
+      let angle = Math.atan2(dy, dx);
+      // keep text upright
+      if (angle > Math.PI / 2 || angle < -Math.PI / 2) angle += Math.PI;
+      ctx.save();
+      ctx.translate(midX, midY);
+      ctx.rotate(angle);
+      ctx.fillText(text, 0, -10 * scale);
+      ctx.restore();
+      // If this measurement is selected, draw resize handles at endpoints (styled like other tools)
+      const drawHandle = (hx: number, hy: number, radius = 5) => {
+        ctx.beginPath();
+        ctx.arc(hx, hy, radius, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+        ctx.strokeStyle = '#3b82f6';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      };
+      if (selectedMeasurement !== null) {
+        const sel = (measurementsRef.current || [])[selectedMeasurement];
+        if (sel && sel === m) {
+          drawHandle(x1, y1, 5);
+          drawHandle(x2, y2, 5);
+        }
+      }
+    };
+    // Draw a special calibration line (temporary) with a clear label
+    const drawCalibrationLine = (m: Measurement) => {
+      const x1 = m.x1 * scale, y1 = m.y1 * scale, x2 = m.x2 * scale, y2 = m.y2 * scale;
+      const color = '#2563eb';
+      ctx.strokeStyle = color;
+      ctx.lineWidth = Math.max(2, (m.strokeWidth || 2));
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      // End ticks
+      const dx = x2 - x1, dy = y2 - y1;
+      const len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len, ny = dx / len;
+      const t = 6 * scale;
+      ctx.beginPath();
+      ctx.moveTo(x1 + nx * t, y1 + ny * t);
+      ctx.lineTo(x1 - nx * t, y1 - ny * t);
+      ctx.moveTo(x2 + nx * t, y2 + ny * t);
+      ctx.lineTo(x2 - nx * t, y2 - ny * t);
+      ctx.stroke();
+      // Label "Calibration line" above midpoint
+      const midX = (x1 + x2) / 2; const midY = (y1 + y2) / 2;
+      const fontPx = Math.max(6, (measurementFontPxRef.current || 12) * 0.6) * scale;
+      ctx.font = `bold ${fontPx}px Arial`;
+      ctx.fillStyle = color;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      ctx.fillText('Calibration line', midX, midY - 8 * scale);
+    };
+    (measurementsRef.current || []).forEach(drawMeasurement);
+    if (pendingMeasurementRef.current) drawCalibrationLine(pendingMeasurementRef.current);
+
+    // Loupe (magnifier): show when Alt is held
+    if (altPressedRef.current && loupePosRef.current && canvasRef.current) {
+      const { x: mx, y: my } = loupePosRef.current;
+      const radius = Math.max(30, Math.min(200, loupeRadiusRef.current));
+      const zoom = Math.max(1.2, Math.min(6, loupeZoomRef.current));
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(mx, my, radius, 0, Math.PI * 2);
+      ctx.clip();
+      const base = canvasRef.current as HTMLCanvasElement;
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(base, 0, 0, base.width, base.height, mx - mx * zoom, my - my * zoom, base.width * zoom, base.height * zoom);
+      ctx.restore();
+      // Ring and crosshair
+      ctx.beginPath();
+      ctx.arc(mx, my, radius, 0, Math.PI * 2);
+      ctx.strokeStyle = '#2563eb';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(mx - radius + 8, my);
+      ctx.lineTo(mx + radius - 8, my);
+      ctx.moveTo(mx, my - radius + 8);
+      ctx.lineTo(mx, my + radius - 8);
+      ctx.stroke();
+    }
 
     // Circles
     // Circles (per-shape styling)
@@ -917,12 +1115,15 @@ export default function PDFViewerV2({
           ctx.moveTo(x2, y2);
           ctx.lineTo(x2 - headLength * Math.cos(angle + Math.PI / 6), y2 - headLength * Math.sin(angle + Math.PI / 6));
           ctx.stroke();
+        } else if (anyRef?.kind === 'measurement') {
+          const m = anyRef as { x1: number; y1: number; x2: number; y2: number; color: string; strokeWidth: number };
+          drawMeasurement(m as Measurement);
         }
       }
     }
     // reset alpha
     ctx.globalAlpha = 1;
-  }, [freehands, rects, circles, arrows, texts, callouts, clouds, scale, coercedProps.color, coercedProps.strokeWidth, coercedProps.fontSize, coercedProps.opacity, selectedRect, selectedCircle, selectedText, selectedCallout, selectedArrow, selectedCloud]);
+  }, [freehands, rects, circles, arrows, texts, callouts, clouds, scale, coercedProps.color, coercedProps.strokeWidth, coercedProps.fontSize, coercedProps.opacity, selectedRect, selectedCircle, selectedText, selectedCallout, selectedArrow, selectedCloud, selectedMeasurement]);
 
   // Always redraw when any shape state changes
   useEffect(() => {
@@ -937,6 +1138,7 @@ export default function PDFViewerV2({
     if (activeTool !== 'callout') setSelectedCallout(null);
     if (activeTool !== 'arrow') setSelectedArrow(null);
     if (activeTool !== 'cloud') setSelectedCloud(null);
+    if (activeTool !== 'measurement') setSelectedMeasurement(null);
     drawOverlay();
   }, [activeTool]);
 
@@ -1077,6 +1279,22 @@ export default function PDFViewerV2({
       return updated;
     }));
   }, [coercedProps.color, coercedProps.fontSize, coercedProps.fontWeight, coercedProps.fontStyle, coercedProps.textDecoration, coercedProps.textAlign, coercedProps.textBorder, coercedProps.textBoxLineThickness, coercedProps.strokeWidth, coercedProps.opacity, selectedText]);
+
+  // Apply measurement properties to selected measurement (color and font size).
+  // Use raw toolProperties values to avoid clamping to 8px used by coercedProps.
+  useEffect(() => {
+    if (selectedMeasurement === null) return;
+    setMeasurements(prev => {
+      const next = prev.map((m, i) => i === selectedMeasurement ? {
+        ...m,
+        color: (toolProperties?.color ?? m.color),
+        labelSize: (typeof toolProperties?.fontSize === 'number' ? toolProperties!.fontSize : m.labelSize)
+      } : m);
+      measurementsRef.current = next;
+      Promise.resolve().then(() => requestAnimationFrame(() => drawOverlay()));
+      return next;
+    });
+  }, [selectedMeasurement, toolProperties?.color, toolProperties?.fontSize]);
 
   // Apply callout properties
   useEffect(() => {
@@ -1409,6 +1627,29 @@ export default function PDFViewerV2({
         Promise.resolve().then(() => requestAnimationFrame(() => drawOverlay()));
         // Push to history timeline
         Promise.resolve().then(() => commitInteraction());
+      } else if (activeTool === 'measurement') {
+        const p = getLocalPoint(e);
+        // Hit-test existing measurements first to select/move/resize instead of creating a new one
+        const handle = 8 / scale;
+        let handled = false;
+        for (let i = (measurementsRef.current?.length || 0) - 1; i >= 0; i--) {
+          const m = (measurementsRef.current as Measurement[])[i];
+          if (Math.hypot(p.x - m.x1, p.y - m.y1) <= handle) { setSelectedMeasurement(i); resizingMeasurementRef.current = { index: i, end: 'start' }; handled = true; break; }
+          if (Math.hypot(p.x - m.x2, p.y - m.y2) <= handle) { setSelectedMeasurement(i); resizingMeasurementRef.current = { index: i, end: 'end' }; handled = true; break; }
+          const dx = m.x2 - m.x1, dy = m.y2 - m.y1; const len2 = dx*dx + dy*dy || 1;
+          const t = Math.max(0, Math.min(1, ((p.x - m.x1)*dx + (p.y - m.y1)*dy)/len2));
+          const proj = { x: m.x1 + t*dx, y: m.y1 + t*dy };
+          const dist = Math.hypot(p.x - proj.x, p.y - proj.y);
+          if (dist <= handle) { setSelectedMeasurement(i); movingMeasurementRef.current = { index: i, dx: p.x - m.x1, dy: p.y - m.y1 }; handled = true; break; }
+        }
+        if (!handled) {
+          // Prepare new measurement, but don't commit unless the user drags beyond threshold
+          drawingRef.current = { kind: 'measurement', x1: p.x, y1: p.y, x2: p.x, y2: p.y, color: coercedProps.color, strokeWidth: Math.max(1, coercedProps.strokeWidth) } as any;
+          interactionChangedRef.current = false; // not yet changed until drag
+        } else {
+          // Ensure overlay updates to reflect selection
+          drawOverlay();
+        }
       } else if (activeTool === 'select') {
         // Pan only in select mode
         isPanningRef.current = true;
@@ -1543,6 +1784,22 @@ export default function PDFViewerV2({
             if (dist <= handle) { setSelectedArrow(i); movingArrowRef.current = { index: i, dx: local.x - a.x1, dy: local.y - a.y1 }; isPanningRef.current = false; break; }
           }
         }
+        // Measurement hit test in select mode
+        if (!movingCalloutRef.current && !movingCloudRef.current && !resizingCloudRef.current && !movingRectRef.current && !resizingRectRef.current && !movingCircleRef.current && !resizingCircleRef.current && !movingArrowRef.current && !resizingArrowRef.current) {
+          const handle = 8 / scale;
+          for (let i = (measurementsRef.current?.length || 0) - 1; i >= 0; i--) {
+            const m = (measurementsRef.current as Measurement[])[i];
+            // handles at endpoints
+            if (Math.hypot(local.x - m.x1, local.y - m.y1) <= handle) { setSelectedMeasurement(i); resizingMeasurementRef.current = { index: i, end: 'start' }; isPanningRef.current = false; break; }
+            if (Math.hypot(local.x - m.x2, local.y - m.y2) <= handle) { setSelectedMeasurement(i); resizingMeasurementRef.current = { index: i, end: 'end' }; isPanningRef.current = false; break; }
+            // near segment
+            const dx = m.x2 - m.x1, dy = m.y2 - m.y1; const len2 = dx*dx + dy*dy || 1;
+            const t = Math.max(0, Math.min(1, ((local.x - m.x1)*dx + (local.y - m.y1)*dy)/len2));
+            const proj = { x: m.x1 + t*dx, y: m.y1 + t*dy };
+            const dist = Math.hypot(local.x - proj.x, local.y - proj.y);
+            if (dist <= handle) { setSelectedMeasurement(i); movingMeasurementRef.current = { index: i, dx: local.x - m.x1, dy: local.y - m.y1 }; isPanningRef.current = false; break; }
+          }
+        }
       }
       drawOverlay();
     };
@@ -1577,6 +1834,11 @@ export default function PDFViewerV2({
     };
 
     const onMove = (e: MouseEvent) => {
+      // Keep loupe (magnifier) following the cursor even while dragging/drawing
+      if (overlayRef.current) {
+        const rect = overlayRef.current.getBoundingClientRect();
+        loupePosRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      }
       if (drawingRef.current) {
         if ((drawingRef.current as FreehandPath).points) {
           const p = getLocalPoint(e);
@@ -1610,6 +1872,13 @@ export default function PDFViewerV2({
             const c = anyRef as Cloud;
             c.w = p.x - c.x;
             c.h = p.y - c.y; interactionChangedRef.current = true;
+          } else if (anyRef.kind === 'measurement') {
+            const dx = p.x - anyRef.x1;
+            const dy = p.y - anyRef.y1;
+            const dragged = Math.hypot(dx, dy) > (4 / scale);
+            anyRef.x2 = p.x;
+            anyRef.y2 = p.y;
+            if (dragged) interactionChangedRef.current = true; // only mark changed after a small drag
           }
         }
         drawOverlay();
@@ -1621,6 +1890,12 @@ export default function PDFViewerV2({
         const local = { x: (e.clientX - rect.left) / scale, y: (e.clientY - rect.top) / scale };
         const { index, dx, dy } = movingCalloutRef.current;
         setCallouts(prev => prev.map((c, i) => i === index ? { ...c, x: local.x - dx, y: local.y - dy } : c));
+      } else if (movingMeasurementRef.current) {
+        const overlay = overlayRef.current!;
+        const rect = overlay.getBoundingClientRect();
+        const local = { x: (e.clientX - rect.left) / scale, y: (e.clientY - rect.top) / scale };
+        const { index, dx, dy } = movingMeasurementRef.current;
+        setMeasurements(prev => prev.map((m, i) => i === index ? { ...m, x1: local.x - dx, y1: local.y - dy, x2: (local.x - dx) + (m.x2 - m.x1), y2: (local.y - dy) + (m.y2 - m.y1) } : m));
       } else if (movingTextRef.current) {
         const overlay = overlayRef.current!;
         const rect = overlay.getBoundingClientRect();
@@ -1768,6 +2043,12 @@ export default function PDFViewerV2({
           return next;
         });
         drawOverlay();
+      } else if (movingMeasurementRef.current) {
+        const overlay = overlayRef.current!;
+        const rect = overlay.getBoundingClientRect();
+        const local = { x: (e.clientX - rect.left) / scale, y: (e.clientY - rect.top) / scale };
+        const { index, dx, dy } = movingMeasurementRef.current;
+        setMeasurements(prev => prev.map((m, i) => i === index ? { ...m, x1: local.x - dx, y1: local.y - dy, x2: (local.x - dx) + (m.x2 - m.x1), y2: (local.y - dy) + (m.y2 - m.y1) } : m));
       } else if (resizingArrowRef.current) {
         const overlay = overlayRef.current!;
         const rect = overlay.getBoundingClientRect();
@@ -1843,6 +2124,12 @@ export default function PDFViewerV2({
         const dx = e.clientX - panStartRef.current.x;
         const dy = e.clientY - panStartRef.current.y;
         setPan({ x: lastPanRef.current.x + dx, y: lastPanRef.current.y + dy });
+      } else if (resizingMeasurementRef.current) {
+        const overlay = overlayRef.current!;
+        const rect = overlay.getBoundingClientRect();
+        const local = { x: (e.clientX - rect.left) / scale, y: (e.clientY - rect.top) / scale };
+        const { index, end } = resizingMeasurementRef.current;
+        setMeasurements(prev => prev.map((m, i) => i === index ? (end === 'start' ? { ...m, x1: local.x, y1: local.y } : { ...m, x2: local.x, y2: local.y }) : m));
       }
     };
 
@@ -1935,6 +2222,38 @@ export default function PDFViewerV2({
               setSelectedCloud(next.length - 1);
               return next;
             });
+          } else if (anyRef.kind === 'measurement') {
+            const m = anyRef as { x1: number; y1: number; x2: number; y2: number; color: string; strokeWidth: number };
+            const lenPts = Math.hypot(m.x2 - m.x1, m.y2 - m.y1);
+            // Require a minimal drag distance to create a measurement; otherwise discard
+            const minPts = 4 / scale;
+            if (lenPts < minPts) { drawingRef.current = null; drawOverlay(); return; }
+            if (!hasCalibratedRef.current && lenPts > 0) {
+              // Keep the drawn line visible while the calibration input is shown
+              pendingMeasurementRef.current = { x1: m.x1, y1: m.y1, x2: m.x2, y2: m.y2, color: m.color, strokeWidth: m.strokeWidth } as any;
+              onRequestCalibration?.(lenPts);
+              drawOverlay();
+            } else if (calibrationVersionRef.current >= 0 && calibrationKnownLengthRef.current > 0 && lenPts > 0) {
+              const paperInches = lenPts / 72; const paperMm = paperInches * 25.4;
+              const unit = measurementUnitRef.current;
+              const desiredMm = calibrationKnownLengthRef.current * (unit === 'cm' ? 10 : unit === 'm' ? 1000 : unit === 'in' ? 25.4 : unit === 'ft' ? 304.8 : 1);
+              const newScale = desiredMm / Math.max(1e-6, paperMm);
+              measurementScaleRef.current = newScale; onMeasurementCalibrated?.(newScale); calibrationVersionRef.current = -1; hasCalibratedRef.current = true;
+              // Clear the pending temp line after calibration applied
+              pendingMeasurementRef.current = null; drawOverlay();
+            } else {
+              setMeasurements(prev => {
+                const next = [...prev, { x1: m.x1, y1: m.y1, x2: m.x2, y2: m.y2, color: m.color, strokeWidth: m.strokeWidth, labelSize: measurementFontPxRef.current } as any];
+                measurementsRef.current = next;
+                return next;
+              });
+              // Select the newly created measurement and redraw after state commit
+              Promise.resolve().then(() => {
+                setSelectedMeasurement((measurementsRef.current?.length || 1) - 1);
+                requestAnimationFrame(() => drawOverlay());
+              });
+              interactionChangedRef.current = true;
+            }
           } else if (anyRef.kind === 'stamp') {
             const s = anyRef as Stamp;
             const normalized: Stamp = {
@@ -1986,6 +2305,7 @@ export default function PDFViewerV2({
       movingCalloutRef.current = null;
       movingCalloutBoxRef.current = null;
       movingStampRef.current = null;
+      movingMeasurementRef.current = null;
       resizingCalloutRef.current = null;
       movingRectRef.current = null;
       resizingRectRef.current = null;
@@ -1993,6 +2313,7 @@ export default function PDFViewerV2({
       resizingCircleRef.current = null;
       resizingArrowRef.current = null;
       movingArrowRef.current = null;
+      resizingMeasurementRef.current = null;
       resizingTextRef.current = null;
       movingTextRef.current = null;
       movingCloudRef.current = null;
@@ -2002,7 +2323,17 @@ export default function PDFViewerV2({
       commitInteraction();
     };
 
+    // Ensure consistent drag events across devices; disable default gestures
+    try { (overlay as any).style.touchAction = 'none'; } catch {}
+    // Mouse listeners (kept for compatibility)
     overlay.addEventListener('mousedown', onDown);
+    // Pointer listeners with capture to guarantee move events during drag
+    const onPointerDown = (e: PointerEvent) => { e.preventDefault(); onDown(e as any); };
+    const onPointerMove = (e: PointerEvent) => { onMove(e as any); };
+    const onPointerUp = (_e: PointerEvent) => { onUp(); };
+    overlay.addEventListener('pointerdown', onPointerDown);
+    overlay.addEventListener('pointermove', onPointerMove);
+    overlay.addEventListener('pointerup', onPointerUp);
     overlay.addEventListener('dblclick', onDblClick);
     const onKey = (e: KeyboardEvent) => {
       if (e.repeat) return; // avoid OS key repeat causing multi-steps in one press
@@ -2048,12 +2379,84 @@ export default function PDFViewerV2({
         interactionChangedRef.current = true; commitInteraction();
       }
     };
+    const onWheel = (e: WheelEvent) => {
+      if (!overlayRef.current || !canvasRef.current) return;
+      // If Alt is held, this wheel event is reserved for the loupe (zoom/size). Do not zoom the PDF.
+      if (altPressedRef.current) return;
+      e.preventDefault();
+      const rect = overlayRef.current.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+      setScale(prev => {
+        const next = Math.min(3, Math.max(0.25, prev * zoomFactor));
+        if (next === prev) return prev;
+        // Keep cursor anchor stable using prev and next
+        const sx = mouseX / prev; const sy = mouseY / prev;
+        const newPanX = mouseX - sx * next;
+        const newPanY = mouseY - sy * next;
+        setPan({ x: newPanX, y: newPanY });
+        // Kick an immediate overlay redraw while page rendering catches up
+        Promise.resolve().then(() => requestAnimationFrame(() => drawOverlay()));
+        return next;
+      });
+    };
+    const onMouseMove = (e: MouseEvent) => {
+      if (!overlayRef.current) return;
+      const rect = overlayRef.current.getBoundingClientRect();
+      loupePosRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      if (altPressedRef.current) drawOverlay();
+      // Show first-use hint when in measurement tool and user hasn't used Alt yet, only after calibration
+      if (activeTool === 'measurement' && (measurementScaleRef.current || 1) !== 1 && !altEverUsedRef.current && !showMeasureHint) {
+        // Clamp hint within overlay bounds with fixed width/height
+        const HINT_W = 140; const HINT_H = 58;
+        const rawX = (loupePosRef.current.x + 16);
+        const rawY = (loupePosRef.current.y + 16);
+        const clampedX = Math.max(8, Math.min(rect.width - HINT_W - 8, rawX));
+        const clampedY = Math.max(8, Math.min(rect.height - HINT_H - 8, rawY));
+        setShowMeasureHint({ x: clampedX, y: clampedY });
+        clearTimeout(hintTimerRef.current);
+        hintTimerRef.current = setTimeout(() => setShowMeasureHint(null), 2500);
+      }
+    };
+    const onKeyDownAlt = (e: KeyboardEvent) => {
+      if (e.key === 'Alt') { altPressedRef.current = true; altEverUsedRef.current = true; setShowMeasureHint(null); drawOverlay(); }
+    };
+    const onKeyUpAlt = (e: KeyboardEvent) => {
+      if (e.key === 'Alt') { altPressedRef.current = false; drawOverlay(); }
+    };
+    const onWheelModifiers = (e: WheelEvent) => {
+      if (!altPressedRef.current) return;
+      if (e.shiftKey) {
+        loupeRadiusRef.current = Math.max(30, Math.min(200, loupeRadiusRef.current + (e.deltaY < 0 ? 10 : -10)));
+      } else {
+        loupeZoomRef.current = Math.max(1.2, Math.min(6, loupeZoomRef.current * (e.deltaY < 0 ? 1.1 : 0.9)));
+      }
+      drawOverlay();
+      e.preventDefault();
+    };
+    overlay.addEventListener('wheel', onWheel, { passive: false } as any);
+    // Also forward overlay mousemove directly to drawing move handler for immediate feedback
+    overlay.addEventListener('mousemove', onMove as any);
+    overlay.addEventListener('mousemove', onMouseMove as any);
+    overlay.addEventListener('wheel', onWheelModifiers as any, { passive: false } as any);
+    window.addEventListener('keydown', onKeyDownAlt);
+    window.addEventListener('keyup', onKeyUpAlt);
     window.addEventListener('keydown', onKey);
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
     return () => {
       overlay.removeEventListener('mousedown', onDown);
+      overlay.removeEventListener('pointerdown', onPointerDown);
+      overlay.removeEventListener('pointermove', onPointerMove);
+      overlay.removeEventListener('pointerup', onPointerUp);
       overlay.removeEventListener('dblclick', onDblClick);
+      overlay.removeEventListener('wheel', onWheel as any);
+      overlay.removeEventListener('mousemove', onMove as any);
+      overlay.removeEventListener('mousemove', onMouseMove as any);
+      overlay.removeEventListener('wheel', onWheelModifiers as any);
+      window.removeEventListener('keydown', onKeyDownAlt);
+      window.removeEventListener('keyup', onKeyUpAlt);
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
@@ -2069,6 +2472,17 @@ export default function PDFViewerV2({
              style={{ transform: `translate(${pan.x}px, ${pan.y}px)` }}>
           <canvas ref={canvasRef} className="block" />
           <canvas ref={overlayRef} className="absolute inset-0" style={{ pointerEvents: 'auto' }} />
+          {/* Inline calibration dialog removed; handled in black bar via parent */}
+          {/* First-use Measure hint (light blue) */}
+          {showMeasureHint && activeTool === 'measurement' && (
+            <div style={{ position: 'absolute', left: showMeasureHint.x, top: showMeasureHint.y, width: 140, height: 58, pointerEvents: 'none' }}>
+              <div className="px-1.5 py-1.5 rounded-lg border border-blue-300 shadow-sm" style={{ background: '#dbeafe', opacity: 0.87, width: '100%', height: '100%', lineHeight: '1.12' }}>
+                <div className="text-[10px] text-blue-900" style={{ wordBreak: 'break-word' }}>Hold <span className="font-semibold">Alt</span> for magnifier</div>
+                <div className="text-[9px] text-blue-800 mt-0.5 opacity-95"><span className="font-semibold">Alt</span>+Wheel zoom</div>
+                <div className="text-[9px] text-blue-800 mt-0.5 opacity-95"><span className="font-semibold">Alt+Shift</span>+Wheel size</div>
+              </div>
+            </div>
+          )}
           {/* Inline editors + static DOM text renderers */}
           {activeEditor && (() => {
             const toRect = () => {
@@ -2148,8 +2562,8 @@ export default function PDFViewerV2({
                     }}>
                       <div style={{ position: 'absolute', inset: 0, background: '#ffffff', opacity: Math.min(1, Math.max(0, t.opacity ?? 1)) }} />
                       <div style={{ position: 'absolute', inset: 0, border: `${(t.borderWidth || 1.5) * scale}px solid ${t.color}` }} />
-        </div>
-                  );
+    </div>
+  );
                 })()}
                 <textarea
                 key={`editor-${activeEditor.kind}-${activeEditor.index}`}

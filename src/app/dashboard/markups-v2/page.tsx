@@ -92,6 +92,24 @@ export default function MarkupsV2Page() {
     undo: () => void;
     redo: () => void;
   } | null>(null);
+  // Measurement settings
+  const [measureUnit, setMeasureUnit] = useState<'mm' | 'cm' | 'm' | 'in' | 'ft'>('mm');
+  const [measureScale, setMeasureScale] = useState<number>(1); // real per paper (1:X => X)
+  const [measureFont, setMeasureFont] = useState<number>(12);
+  const [calibLen, setCalibLen] = useState<number>(1000); // in selected unit
+  const [calibLenStr, setCalibLenStr] = useState<string>("");
+  const [calibVersion, setCalibVersion] = useState<number>(-1);
+  // Deprecated: black bar calibrator replaced by in-panel setup
+  const [showTopCalibrator, setShowTopCalibrator] = useState<boolean>(false);
+  const [paperLenPts, setPaperLenPts] = useState<number>(0);
+  const [showMeasureSetup, setShowMeasureSetup] = useState<boolean>(false);
+  const [isCalibInputFocused, setIsCalibInputFocused] = useState<boolean>(false);
+  // Mirror of the floating measurement hint text, to show inside the setup box too
+  const measureHint = {
+    title: 'Hold Alt for magnifier',
+    zoom: 'Alt+Wheel zoom',
+    size: 'Alt+Shift+Wheel size'
+  };
   const [showStampModal, setShowStampModal] = useState(false);
   const [stampTemplate, setStampTemplate] = useState<{ title: string; status?: 'APPROVED' | 'AS-BUILT' | 'REJECTED' | 'CUSTOM'; color?: string; opacity?: number; strokeWidth?: number; logoUrl?: string; fontSize?: number } | null>(null);
   const [stampBuilder, setStampBuilder] = useState<{ title: string; status: 'APPROVED' | 'AS-BUILT' | 'REJECTED' | 'CUSTOM'; color: string; opacity: number; strokeWidth: number; fontSize: number; useCompanyLogo?: boolean }>({ title: '', status: 'CUSTOM', color: '#ef4444', opacity: 1, strokeWidth: 2, fontSize: 14, useCompanyLogo: false });
@@ -330,10 +348,19 @@ Common Issues:
                     setLastActiveTool(tool);
                     if (!QUIET_LOGS) console.log('🛠️ Parent: Setting lastActiveTool to:', tool);
                   }
+                  // Show setup when entering measurement and scale is not set
+                  if (tool === 'measurement' && measureScale === 1) {
+                    setShowMeasureSetup(true);
+                  } else if (tool !== 'measurement') {
+                    setShowMeasureSetup(false);
+                  }
                 }}
                 activeTool={activeTool as any}
                 toolProperties={toolProperties}
                 stampTemplate={stampTemplate}
+                measurementConfig={{ unit: measureUnit, scale: measureScale, fontSize: 12, calibrate: calibVersion >= 0 ? { version: calibVersion, knownLength: calibLen } : undefined }}
+                onMeasurementCalibrated={(s) => setMeasureScale(s)}
+                onRequestCalibration={(pts) => { setPaperLenPts(pts); /* panel-driven calibration */ }}
                 className="w-full"
               />
 
@@ -444,13 +471,24 @@ Common Issues:
             maxWidth: '64px'
           }}
         >
-          {showPropertiesPanel && (
+          {showPropertiesPanel && !(activeTool === 'measurement' && measureScale === 1 && showMeasureSetup) && (
             <div className="properties-panel absolute right-full bottom-0 w-64 bg-white border border-gray-200 shadow-lg rounded-lg z-50" style={{ bottom: '-20px' }}>
               <div className="p-4 pb-6">
                 <div className="space-y-3">
                   <div>
                     <div className="grid grid-cols-4 gap-2 justify-items-center">
-                      {['#000000', '#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#ffffff'].map((color) => (
+                      {[
+                        // Top row: practical base colours
+                        '#000000', // black
+                        '#ef4444', // red
+                        '#14532d', // deep green
+                        '#1d4ed8', // blue
+                        // Second row: real-world accents
+                        '#facc15', // yellow (amber-400)
+                        '#f97316', // orange (orange-500)
+                        '#ec4899', // pink (pink-500)
+                        '#ffffff'  // white
+                      ].map((color) => (
                         <div
                           key={color}
                           className={`w-8 h-8 rounded-lg border-2 cursor-pointer hover:scale-105 transition-transform ${
@@ -546,6 +584,40 @@ Common Issues:
                       </div>
                     </>
                   )}
+                  {/* Measurement setup moved to floating blue box; properties hidden until scale applied */}
+                  {(activeTool === 'measurement' && measureScale !== 1) || (activeTool === 'select' && lastActiveTool === 'measurement') ? (
+                    <>
+                      <div className="mt-3">
+                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1">Units</label>
+                        <select className="w-full border rounded-lg px-2 py-1.5 text-sm text-gray-900" value={measureUnit} onChange={(e) => setMeasureUnit(e.target.value as any)}>
+                          <option value="mm">Millimetres (mm)</option>
+                          <option value="cm">Centimetres (cm)</option>
+                          <option value="m">Metres (m)</option>
+                          <option value="in">Inches (in)</option>
+                          <option value="ft">Feet (ft)</option>
+                        </select>
+                      </div>
+                      <div className="mt-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">Scale</label>
+                          <span className="text-xs text-gray-500">1:{Math.round(measureScale)}</span>
+                        </div>
+                      </div>
+                      <div className="mt-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">Number Size (selected)</label>
+                          <span className="text-xs text-gray-500">{measureFont}px</span>
+                        </div>
+                        <input type="range" min="1" max="36" step="1" value={measureFont} onChange={(e) => {
+                          const v = parseInt(e.target.value || '12');
+                          setMeasureFont(v);
+                          // send size to selected measurement only via tool properties propagation
+                          setToolProperties(prev => ({ ...prev, fontSize: v }));
+                        }} className="w-full" />
+                      </div>
+                      {/* Colour row removed; colours are available in the top palette now */}
+                    </>
+                  ) : null}
                   {(activeTool === 'text' || (activeTool === 'select' && lastActiveTool === 'text')) && (
                     <>
                       <div className="mt-3">
@@ -589,6 +661,58 @@ Common Issues:
               </div>
             </div>
           )}
+
+          {activeTool === 'measurement' && measureScale === 1 && showMeasureSetup && (
+            <div
+              className="absolute right-full bottom-0 w-64 rounded-lg border border-blue-400 shadow-lg z-50 backdrop-blur-xl backdrop-saturate-150"
+              style={{ bottom: '-20px', background: 'rgba(37, 99, 235, 0.26)' }}
+            >
+              <div className="p-4 space-y-3 text-blue-900">
+                <div className="text-xs">Draw a line over a known length on the drawing.</div>
+                <div className="text-xs">Enter the real length and apply to set the scale.</div>
+                <div className="text-xs font-semibold">Zoom & magnifier</div>
+                <div className="text-xs">To zoom: hold <span className="font-semibold">Alt</span> and scroll</div>
+                <div className="text-xs">To resize magnifier: hold <span className="font-semibold">Alt+Shift</span> and scroll</div>
+                <div className="flex items-end gap-2">
+                  <div className="flex-1">
+                    <label className="block text-[11px] font-semibold mb-1">Known length</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      pattern="[0-9]*[.,]?[0-9]*"
+                      placeholder="1000"
+                      className="w-full h-9 border border-blue-300 rounded-lg px-2 py-1.5 text-sm text-blue-900 bg-white/85 placeholder:text-blue-700/60 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      value={calibLenStr}
+                      onChange={(e) => setCalibLenStr(e.target.value)}
+                      onFocus={() => setIsCalibInputFocused(true)}
+                      onBlur={() => setIsCalibInputFocused(false)}
+                    />
+                  </div>
+                  <div className="w-16 text-[12px] select-none" style={{ opacity: isCalibInputFocused ? 0 : 1 }} aria-hidden={isCalibInputFocused}>{measureUnit}</div>
+                </div>
+                <button
+                  className="w-full px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+                  onClick={() => {
+                    const paperInches = paperLenPts / 72;
+                    const paperMm = paperInches * 25.4;
+                    const unit = measureUnit;
+                    const entered = parseFloat((calibLenStr || '').replace(',', '.')) || 0;
+                    setCalibLen(entered);
+                    const desiredMm = entered * (unit === 'cm' ? 10 : unit === 'm' ? 1000 : unit === 'in' ? 25.4 : unit === 'ft' ? 304.8 : 1);
+                    if (paperMm > 0 && desiredMm > 0) {
+                      const newScale = desiredMm / paperMm;
+                      setMeasureScale(newScale);
+                      setCalibVersion(-1);
+                      setShowMeasureSetup(false);
+                      setCalibLenStr("");
+                    }
+                  }}
+                >
+                  Apply
+                </button>
+              </div>
+            </div>
+          )}
           <nav className="flex-1 space-y-0.5 p-4">
             <div className="space-y-0.5">
               {basicTools.map((tool) => (
@@ -623,6 +747,16 @@ Common Issues:
                       if (tool.id === 'stamp') { setShowStampModal(true); return; }
                       setActiveTool(tool.id as string);
                       if (tool.id !== 'select') { setLastActiveTool(tool.id as string); }
+                      if (tool.id === 'measurement') {
+                        if (measureScale === 1) {
+                          setShowMeasureSetup(true);
+                          setShowPropertiesPanel(false);
+                        } else {
+                          setShowMeasureSetup(false);
+                        }
+                      } else {
+                        setShowMeasureSetup(false);
+                      }
                     }}
                     className={`flex items-center justify-center rounded-lg text-gray-700 transition-colors duration-200 py-1.5 px-4 w-full ${
                       activeTool === tool.id ? "font-semibold text-blue-700" : ""
@@ -705,7 +839,7 @@ Common Issues:
                     </div>
                     <div className="absolute right-full mr-6 top-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-70 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-[9999]">Color<div className="absolute right-0 top-1/2 transform -translate-y-1/2 translate-x-1 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-l-gray-900"></div></div>
                   </div>
-                  {((activeTool === 'rectangle' || activeTool === 'circle' || activeTool === 'arrow' || activeTool === 'freehand') || (activeTool === 'select' && (lastActiveTool === 'rectangle' || lastActiveTool === 'circle' || lastActiveTool === 'arrow' || lastActiveTool === 'freehand'))) && (
+                  {((activeTool === 'rectangle' || activeTool === 'circle' || activeTool === 'arrow' || activeTool === 'freehand' || activeTool === 'measurement') || (activeTool === 'select' && (lastActiveTool === 'rectangle' || lastActiveTool === 'circle' || lastActiveTool === 'arrow' || lastActiveTool === 'freehand' || lastActiveTool === 'measurement'))) && (
                     <div className="relative group">
                       <div className="flex items-center justify-center">
                         <div className="tool-property w-8 h-8 rounded-lg border-2 border-gray-300 bg-gray-100 flex items-center justify-center cursor-pointer hover:bg-gray-200 transition-colors" onClick={() => setShowPropertiesPanel(true)}>
@@ -734,7 +868,10 @@ Common Issues:
             pointerEvents: 'auto' as const
           }}
         >
-          <div className="bg-black/90 backdrop-blur-md border border-white/30 rounded-2xl shadow-2xl p-3 flex items-center space-x-4">
+          <div className="relative bg-black/90 backdrop-blur-md border border-white/30 rounded-2xl shadow-2xl p-3 flex items-center space-x-4">
+            {false && activeTool === 'measurement' && measureScale === 1 && (
+              <div />
+            )}
             <div className="flex items-center space-x-2">
               <button
                 onClick={pdfControls?.undo || (() => {})}
